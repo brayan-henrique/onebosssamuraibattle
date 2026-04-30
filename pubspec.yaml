@@ -1,0 +1,69 @@
+name: onebosssamuraibattle
+description: "A new Flutter project."
+
+environment:
+  sdk: ^3.10.1
+
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+
+  cupertino_icons: ^1.0.8
+  flame: ^1.35.1
+  flame_audio: 2.11.14
+  shared_preferences: ^2.5.5
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+
+  flutter_lints: ^6.0.0
+
+
+flutter:
+
+
+  uses-material-design: true
+  assets:
+
+    - assets/images/player_walk.png
+    - assets/images/player_idle.png
+    - assets/images/chao_default.png
+    - assets/images/ceu_limpo.png
+    - assets/images/nuvens_dafault.png
+    - assets/images/icone_pulo-1.png
+    - assets/images/Icone_ataque_basico-1.png
+    - assets/images/icon_dash-1.png
+    - assets/images/Escudo_icone-1.png
+    - assets/images/background_menu.png
+    - assets/images/botaoIniciar-1.png
+    - assets/images/button_config.png
+    - assets/images/titulo.png
+    - assets/images/player_dash(etap1).png
+    - assets/images/player_dash(etap2).png
+    - assets/images/pulo_fixo_1.png
+    - assets/images/air_puff.png
+    - assets/images/gota_cheia.png
+    - assets/images/gota_metade.png
+    - assets/images/gota_vazia.png
+    - assets/images/icone_pause.png
+    - assets/images/hud_vida.png
+    - assets/images/player_ataque-1.png
+    - assets/images/player_ataque-2.png
+    - assets/images/player_ataque-3.png
+    - assets/images/corte_estocada_effect.png
+    - assets/images/corte_subindo_effect.png
+    - assets/images/corte_vertical_effect.png
+    - assets/images/player_deflection_falha.png
+    - assets/images/player_deflection_sucesso.png
+    #==================Audio==================
+    - assets/audio/musica_padrao.mp3
+    - assets/audio/musica_morte.mp3
+    - assets/audio/andar.mp3
+    - assets/audio/som_pulo_chao.mp3
+
+
+  
