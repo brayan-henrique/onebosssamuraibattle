@@ -59,6 +59,8 @@ flutter:
     - assets/images/corte_vertical_effect.png
     - assets/images/player_deflection_falha.png
     - assets/images/player_deflection_sucesso.png
+    - assets/images/boss_idle.png
+    
     #==================Audio==================
     - assets/audio/musica_padrao.mp3
     - assets/audio/musica_morte.mp3

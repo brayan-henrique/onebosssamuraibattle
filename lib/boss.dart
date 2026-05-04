@@ -1,9 +1,10 @@
 import 'package:flame/components.dart';
 import 'package:flame/collisions.dart';
-import 'package:flame/effects.dart'; // <-- IMPORT PARA O TREMOR DE CÂMARA
-import 'package:flame_audio/flame_audio.dart'; // <-- IMPORT PARA O ÁUDIO
+import 'package:flame/effects.dart';
+import 'package:flame_audio/flame_audio.dart';
+import 'package:flame/sprite.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // <-- IMPORT PARA A VIBRAÇÃO
+import 'package:flutter/services.dart';
 import 'dart:math';
 import 'dart:ui';
 import 'player.dart';
@@ -106,22 +107,88 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
   late BossArm armRight;
   late BossArm armLeft;
 
-  // <-- VARIÁVEIS DE CONTROLO DO IMPACTO -->
   bool jaTocouSomImpacto = false;
   bool jaVibrouNoChao = false;
 
+  // DECLARAÇÃO DAS HITBOXES
+  late RectangleHitbox bodyHitbox;
+  late RectangleHitbox rightSwordHitbox;
+  late RectangleHitbox leftSwordHitbox;
+
+  SpriteAnimationTicker? idleTicker;
+
   Boss({required this.player})
-    : super(size: Vector2.all(96), anchor: Anchor.center);
+    // ==========================================
+    // 1. ESPICHADA DE 3X (100 * 3 = 300)
+    // ==========================================
+    : super(size: Vector2.all(300), anchor: Anchor.center);
 
   @override
   Future<void> onLoad() async {
-    add(
-      RectangleHitbox(size: Vector2(64, 96), position: Vector2(16, 0))
-        ..paint.color = Colors.transparent,
-    );
+    try {
+      final idleAnim = await gameRef.loadSpriteAnimation(
+        'boss_idle.png',
+        SpriteAnimationData.sequenced(
+          amount: 1, // <-- 2. APENAS 1 FRAME PARA PARAR DE PISCAR!
+          stepTime: 0.15,
+          textureSize: Vector2.all(
+            100,
+          ), // A textura lida continua sendo 100x100
+        ),
+      );
+      idleTicker = idleAnim.createTicker();
+    } catch (e) {
+      debugPrint('Erro ao carregar boss_idle.png: $e');
+    }
+
+    // ==========================================
+    // AJUSTE MANUAL DE HITBOXES (Valores já multiplicados por 3)
+    // ==========================================
+
+    // 1. HITBOX DO CORPO (Verde)
+    final Vector2 posicaoCorpo = Vector2(75, 30);
+    final Vector2 tamanhoCorpo = Vector2(150, 270);
+
+    // 2. HITBOX DA ESPADA DIREITA (Vermelho)
+    final Vector2 posicaoEspadaDir = Vector2(240, 135);
+    final Vector2 tamanhoEspadaDir = Vector2(120, 45);
+
+    // 3. HITBOX DA ESPADA ESQUERDA (Azul)
+    final Vector2 posicaoEspadaEsq = Vector2(-60, 135);
+    final Vector2 tamanhoEspadaEsq = Vector2(120, 45);
+
+    // ==========================================
+    // 3. RENDER SHAPE = TRUE PARA VER AS CORES
+    // ==========================================
+
+    bodyHitbox = RectangleHitbox(position: posicaoCorpo, size: tamanhoCorpo)
+      ..paint = (Paint()
+        ..color = Colors.green.withOpacity(0.5)
+        ..style = PaintingStyle.fill)
+      ..renderShape = true; // <-- ISSO FORÇA A HITBOX A APARECER!
+
+    rightSwordHitbox =
+        RectangleHitbox(position: posicaoEspadaDir, size: tamanhoEspadaDir)
+          ..paint = (Paint()
+            ..color = Colors.red.withOpacity(0.5)
+            ..style = PaintingStyle.fill)
+          ..renderShape = true; // <-- ISSO FORÇA A HITBOX A APARECER!
+
+    leftSwordHitbox =
+        RectangleHitbox(position: posicaoEspadaEsq, size: tamanhoEspadaEsq)
+          ..paint = (Paint()
+            ..color = Colors.blue.withOpacity(0.5)
+            ..style = PaintingStyle.fill)
+          ..renderShape = true; // <-- ISSO FORÇA A HITBOX A APARECER!
+
+    add(bodyHitbox);
+    add(rightSwordHitbox);
+    add(leftSwordHitbox);
+
     armRight = BossArm();
     armRight.position = Vector2(size.x / 2, size.y / 2 - 10);
     add(armRight);
+
     armLeft = BossArm();
     armLeft.position = Vector2(size.x / 2, size.y / 2 + 10);
     add(armLeft);
@@ -130,29 +197,12 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
   @override
   void render(Canvas canvas) {
     super.render(canvas);
-    Paint bossPaint = Paint()..color = Colors.grey;
 
-    if (currentState == BossState.transitioning)
-      bossPaint.color = Colors.white;
-    else if (currentState == BossState.jumpingAway ||
-        currentState == BossState.jumpingUp)
-      bossPaint.color = Colors.purple;
-    else if (currentState == BossState.hovering)
-      bossPaint.color = Colors.transparent;
-    else if (currentState == BossState.falling)
-      bossPaint.color = Colors.yellow;
-    else if (currentState == BossState.kunaiAttack)
-      bossPaint.color = Colors.deepPurple;
-    else if (currentState == BossState.windup)
-      bossPaint.color = Colors.orange;
-    else if (currentState == BossState.swinging)
-      bossPaint.color = Colors.red;
-    else if (currentState == BossState.parryStance)
-      bossPaint.color = Colors.blue;
-    else if (currentState == BossState.vulnerable)
-      bossPaint.color = Colors.green;
-
-    canvas.drawRect(size.toRect(), bossPaint);
+    if (idleTicker != null) {
+      idleTicker!.getSprite().render(canvas, size: size);
+    } else {
+      canvas.drawRect(size.toRect(), Paint()..color = Colors.red);
+    }
   }
 
   @override
@@ -160,6 +210,8 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
     super.update(dt);
 
     if (gameRef.isEditingHUD) return;
+
+    idleTicker?.update(dt);
 
     if (currentHealth <= 0 && currentPhase != BossPhase.phase1) return;
 
@@ -372,7 +424,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
         break;
 
       case BossState.jumpingUp:
-        // <-- RESET DAS VARIÁVEIS AQUI PARA O PRÓXIMO SALTO -->
         jaTocouSomImpacto = false;
         jaVibrouNoChao = false;
 
@@ -399,10 +450,9 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
         armLeft.angle = pi / 2;
         position.y += (2500 * speedMultiplier) * dt;
 
-        // <-- LÓGICA DO ÁUDIO A 25 PIXELS DO CHÃO -->
         if (position.y >= (groundLevelY - 25) && !jaTocouSomImpacto) {
           try {
-            FlameAudio.play('impacto_boss.mp3', volume: 1.0);
+            FlameAudio.play('impacto_boss.mp3', volume: 0.6);
           } catch (e) {}
           jaTocouSomImpacto = true;
         }
@@ -410,7 +460,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
         if (position.y >= groundLevelY) {
           position.y = groundLevelY;
 
-          // <-- LÓGICA DE VIBRAÇÃO E TREMOR NO IMPACTO -->
           if (!jaVibrouNoChao) {
             HapticFeedback.vibrate();
 
@@ -477,7 +526,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
       if (currentState == BossState.parryStance) {
         if (Random().nextInt(100) < 65) {
           debugPrint("💥 PARRY DO BOSS!");
-          // --- TEMPO DE PARALISIA REDUZIDO EM 25% ---
           player.applyParalysis(1.875);
           currentState = BossState.windup;
           stateTimer = 0.0;
