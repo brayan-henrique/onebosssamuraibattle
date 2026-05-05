@@ -34,6 +34,12 @@ class Kunai extends PositionComponent with HasGameRef<MyPixelGame> {
   final double speed = 423.0;
   bool hasHit = false;
 
+  // Controle da Invocação
+  bool isInvoking = true;
+
+  SpriteAnimationTicker? invocationTicker;
+  Sprite? kunaiSprite;
+
   Kunai({
     required this.player,
     required this.direction,
@@ -43,17 +49,71 @@ class Kunai extends PositionComponent with HasGameRef<MyPixelGame> {
   @override
   Future<void> onLoad() async {
     add(RectangleHitbox()..paint.color = Colors.transparent);
+
+    // Se a direção for 1.0 (positivo), o boss atirou da esquerda para a direita
+    bool bossNaEsquerda = direction == 1.0;
+
+    try {
+      if (bossNaEsquerda) {
+        final anim = await gameRef.loadSpriteAnimation(
+          'ivocacao_esquerda.png',
+          SpriteAnimationData.sequenced(
+            amount: 6,
+            stepTime: 0.1,
+            textureSize: Vector2(
+              30,
+              34,
+            ), // Ajuste se a sua imagem tiver outro tamanho (ex: 32x32)
+            loop: false,
+          ),
+        );
+        invocationTicker = anim.createTicker();
+        kunaiSprite = await gameRef.loadSprite('ataque_kunai_esquerda.png');
+      } else {
+        final anim = await gameRef.loadSpriteAnimation(
+          'ivocacao_direita.png',
+          SpriteAnimationData.sequenced(
+            amount: 6,
+            stepTime: 0.1,
+            textureSize: Vector2(
+              30,
+              34,
+            ), // Ajuste se a sua imagem tiver outro tamanho (ex: 32x32)
+            loop: false,
+          ),
+        );
+        invocationTicker = anim.createTicker();
+        kunaiSprite = await gameRef.loadSprite('ataque_kunai_direita.png');
+      }
+    } catch (e) {
+      debugPrint("Erro ao carregar sprites da kunai: $e");
+    }
   }
 
   @override
   void update(double dt) {
     super.update(dt);
     if (gameRef.isEditingHUD) return;
+
+    // LÓGICA DA INVOCAÇÃO
+    if (isInvoking) {
+      invocationTicker?.update(dt);
+
+      // Quando a animação dos 6 frames acabar, a kunai está pronta para voar!
+      if (invocationTicker?.done() == true) {
+        isInvoking = false;
+      }
+      return; // Sai do update para não mover a kunai nem causar dano ainda
+    }
+
+    // LÓGICA DE MOVIMENTO NORMAL (após a invocação)
     position.x += speed * direction * dt;
+
     if (position.x < -100 || position.x > 900) {
       removeFromParent();
       return;
     }
+
     if (!hasHit && position.distanceTo(player.position) < 30) {
       player.receiveAttack(1.0);
       hasHit = true;
@@ -64,11 +124,25 @@ class Kunai extends PositionComponent with HasGameRef<MyPixelGame> {
   @override
   void render(Canvas canvas) {
     super.render(canvas);
-    canvas.drawRect(size.toRect(), Paint()..color = Colors.deepPurpleAccent);
+
+    if (isInvoking) {
+      if (invocationTicker != null) {
+        invocationTicker!.getSprite().render(canvas, size: size);
+      }
+    } else {
+      if (kunaiSprite != null) {
+        kunaiSprite!.render(canvas, size: size);
+      } else {
+        // Backup invisível/transparente caso a imagem não carregue, para você saber que a hitbox está lá
+        canvas.drawRect(
+          size.toRect(),
+          Paint()..color = Colors.deepPurpleAccent.withOpacity(0.3),
+        );
+      }
+    }
   }
 }
 
-// NOVA CLASSE DE BRAÇO ATUALIZADA PARA USAR A IMAGEM DA ESPADA
 class BossArm extends PositionComponent with HasGameRef<MyPixelGame> {
   Sprite? espadaSprite;
 
@@ -86,12 +160,9 @@ class BossArm extends PositionComponent with HasGameRef<MyPixelGame> {
   @override
   void render(Canvas canvas) {
     super.render(canvas);
-
-    // Se a imagem da espada carregou, desenha ela!
     if (espadaSprite != null) {
       espadaSprite!.render(canvas, size: size);
     } else {
-      // Backup de segurança: desenha o retângulo preto se a imagem falhar
       canvas.drawRect(size.toRect(), Paint()..color = Colors.black);
     }
   }
@@ -131,11 +202,9 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
   @override
   Future<void> onLoad() async {
     try {
-      // Sprites Estáticos
       spriteIdle = await gameRef.loadSprite('boss_reserva.png');
       spriteAtacando = await gameRef.loadSprite('boss_reserva_atacando.png');
 
-      // Animação de Parry (6 frames, com tempo variável, toca uma vez só)
       final parryAnim = await gameRef.loadSpriteAnimation(
         'boss_reserva_parry.png',
         SpriteAnimationData.variable(
@@ -147,7 +216,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
       );
       parryTicker = parryAnim.createTicker();
 
-      // Animação de Machucado (2 frames em loop)
       final machucadoAnim = await gameRef.loadSpriteAnimation(
         'boss_reserva_machucado.png',
         SpriteAnimationData.sequenced(
@@ -165,11 +233,9 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
       RectangleHitbox(size: Vector2(64, 96), position: Vector2(16, 0))
         ..paint.color = Colors.transparent,
     );
-
     armRight = BossArm();
     armRight.position = Vector2(size.x / 2, size.y / 2 - 10);
     add(armRight);
-
     armLeft = BossArm();
     armLeft.position = Vector2(size.x / 2, size.y / 2 + 10);
     add(armLeft);
@@ -179,7 +245,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
   void render(Canvas canvas) {
     super.render(canvas);
 
-    // PRIORIDADE 1: Se acabou de tomar dano, mostra a animação de machucado
     if (hurtTimer > 0) {
       if (machucadoTicker != null) {
         machucadoTicker!.getSprite().render(canvas, size: size);
@@ -187,7 +252,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
       }
     }
 
-    // PRIORIDADE 2: Estados específicos de combate
     if (currentState == BossState.windup ||
         currentState == BossState.swinging) {
       if (spriteAtacando != null)
@@ -207,7 +271,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
     } else if (currentState == BossState.hovering) {
       // Quando ele está pulando fora da tela, não desenha nada
     } else {
-      // Chasing, falling, jumpingUp, etc. (O estado padrão)
       if (spriteIdle != null)
         spriteIdle!.render(canvas, size: size);
       else
@@ -220,7 +283,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
     super.update(dt);
     if (gameRef.isEditingHUD) return;
 
-    // Atualiza as animações
     parryTicker?.update(dt);
     machucadoTicker?.update(dt);
 
