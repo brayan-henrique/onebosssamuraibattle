@@ -34,7 +34,6 @@ class Kunai extends PositionComponent with HasGameRef<MyPixelGame> {
   final double speed = 423.0;
   bool hasHit = false;
 
-  // Controle da Invocação
   bool isInvoking = true;
 
   SpriteAnimationTicker? invocationTicker;
@@ -50,7 +49,6 @@ class Kunai extends PositionComponent with HasGameRef<MyPixelGame> {
   Future<void> onLoad() async {
     add(RectangleHitbox()..paint.color = Colors.transparent);
 
-    // Se a direção for 1.0 (positivo), o boss atirou da esquerda para a direita
     bool bossNaEsquerda = direction == 1.0;
 
     try {
@@ -60,10 +58,7 @@ class Kunai extends PositionComponent with HasGameRef<MyPixelGame> {
           SpriteAnimationData.sequenced(
             amount: 6,
             stepTime: 0.1,
-            textureSize: Vector2(
-              30,
-              34,
-            ), // Ajuste se a sua imagem tiver outro tamanho (ex: 32x32)
+            textureSize: Vector2(32, 32),
             loop: false,
           ),
         );
@@ -75,10 +70,7 @@ class Kunai extends PositionComponent with HasGameRef<MyPixelGame> {
           SpriteAnimationData.sequenced(
             amount: 6,
             stepTime: 0.1,
-            textureSize: Vector2(
-              30,
-              34,
-            ), // Ajuste se a sua imagem tiver outro tamanho (ex: 32x32)
+            textureSize: Vector2(32, 32),
             loop: false,
           ),
         );
@@ -95,18 +87,14 @@ class Kunai extends PositionComponent with HasGameRef<MyPixelGame> {
     super.update(dt);
     if (gameRef.isEditingHUD) return;
 
-    // LÓGICA DA INVOCAÇÃO
     if (isInvoking) {
       invocationTicker?.update(dt);
-
-      // Quando a animação dos 6 frames acabar, a kunai está pronta para voar!
       if (invocationTicker?.done() == true) {
         isInvoking = false;
       }
-      return; // Sai do update para não mover a kunai nem causar dano ainda
+      return;
     }
 
-    // LÓGICA DE MOVIMENTO NORMAL (após a invocação)
     position.x += speed * direction * dt;
 
     if (position.x < -100 || position.x > 900) {
@@ -133,7 +121,6 @@ class Kunai extends PositionComponent with HasGameRef<MyPixelGame> {
       if (kunaiSprite != null) {
         kunaiSprite!.render(canvas, size: size);
       } else {
-        // Backup invisível/transparente caso a imagem não carregue, para você saber que a hitbox está lá
         canvas.drawRect(
           size.toRect(),
           Paint()..color = Colors.deepPurpleAccent.withOpacity(0.3),
@@ -170,8 +157,11 @@ class BossArm extends PositionComponent with HasGameRef<MyPixelGame> {
 
 class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
   final Player player;
-  double maxHealth = 1000.0;
-  double currentHealth = 1000.0;
+
+  // Vida pela metade na primeira fase
+  double maxHealth = 500.0;
+  double currentHealth = 500.0;
+
   BossPhase currentPhase = BossPhase.phase1;
   BossState currentState = BossState.chasing;
   double stateTimer = 0.0;
@@ -188,7 +178,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
   bool jaTocouSomImpacto = false;
   bool jaVibrouNoChao = false;
 
-  // CONTROLE DE DANO RECEBIDO
   double hurtTimer = 0.0;
 
   Sprite? spriteIdle;
@@ -269,7 +258,7 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
       else
         canvas.drawRect(size.toRect(), Paint()..color = Colors.green);
     } else if (currentState == BossState.hovering) {
-      // Quando ele está pulando fora da tela, não desenha nada
+      // Invisível
     } else {
       if (spriteIdle != null)
         spriteIdle!.render(canvas, size: size);
@@ -337,6 +326,8 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
         double diff = _normalizeAngle(windupTarget - armRight.angle);
         armRight.angle += diff * 15.0 * dt;
         armLeft.angle = armRight.angle;
+
+        // TEMPO NORMAL RESTAURADO (0.4)
         if (stateTimer >= 0.4) {
           currentState = BossState.swinging;
           stateTimer = 0.0;
@@ -345,6 +336,8 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
       case BossState.swinging:
         double windupTarget = attackTargetAngle - (1.5 * attackDirection);
         double swingTarget = attackTargetAngle + (1.8 * attackDirection);
+
+        // TEMPO NORMAL RESTAURADO (0.2)
         double progress = stateTimer / 0.2;
         if (progress > 1.0) progress = 1.0;
         armRight.angle = lerpDouble(windupTarget, swingTarget, progress)!;
@@ -373,7 +366,9 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
       case BossState.vulnerable:
         armRight.angle = lerpDouble(armRight.angle, pi / 2, 5.0 * dt)!;
         armLeft.angle = armRight.angle;
-        if (stateTimer >= 0.8) {
+
+        // MANTIDO TEMPO MAIOR DE DESCANSO (1.6)
+        if (stateTimer >= 1.6) {
           if (Random().nextDouble() < 0.4) {
             currentState = BossState.parryStance;
             parryTicker?.reset();
@@ -389,7 +384,9 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
             : ((3 * pi) / 4);
         armRight.angle = lerpDouble(armRight.angle, parryAngle, 10.0 * dt)!;
         armLeft.angle = armRight.angle + 0.5;
-        if (stateTimer >= 1.5) {
+
+        // MANTIDO TEMPO MAIOR EM DEFESA (2.5)
+        if (stateTimer >= 2.5) {
           currentState = BossState.chasing;
           stateTimer = 0.0;
         }
@@ -403,8 +400,13 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
     stateTimer += dt;
     double percentHealthLost = (1.0 - (currentHealth / maxHealth)) * 100;
     double speedMultiplier = 1.0 + ((percentHealthLost / 10).floor() * 0.04);
-    if (currentState == BossState.windup || currentState == BossState.swinging)
+
+    // ESTE É O CRONÔMETRO QUE RODA ENQUANTO ELE BATE NA GENTE
+    if (currentState == BossState.windup ||
+        currentState == BossState.swinging) {
       specialCooldown -= dt;
+    }
+
     if (specialCooldown <= 0 &&
         (currentState == BossState.chasing ||
             currentState == BossState.vulnerable)) {
@@ -413,11 +415,15 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
         attackPool.shuffle();
       }
       queuedSpecial = attackPool.removeLast();
-      specialCooldown = Random().nextDouble() * 4.0 + 4.0;
+
+      // AQUI ESTÁ A CORREÇÃO: Cronômetro diminuído pela metade! Agora é de 2.0 a 4.0 segundos.
+      specialCooldown = Random().nextDouble() * 2.0 + 2.0;
+
       currentState = BossState.jumpingAway;
       stateTimer = 0.0;
       return;
     }
+
     switch (currentState) {
       case BossState.transitioning:
         if (stateTimer >= 2.0) {
@@ -445,14 +451,17 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
       case BossState.kunaiAttack:
         armRight.angle = pi / 2;
         armLeft.angle = pi / 2;
+
+        // TEMPO NORMAL RESTAURADO PARA KUNAIS (0.35)
         double tempoDeTiro = 0.35 / speedMultiplier;
         if (tempoDeTiro < 0.10) tempoDeTiro = 0.10;
+
         if (stateTimer >= tempoDeTiro) {
           if (kunaisAtiradas < 30) {
             _atirarKunai();
             kunaisAtiradas++;
             stateTimer = 0.0;
-          } else if (stateTimer >= 1.5) {
+          } else if (stateTimer >= 2.5) {
             currentState = BossState.chasing;
             stateTimer = 0.0;
           }
@@ -469,6 +478,7 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
         break;
       case BossState.hovering:
         position.x = player.position.x;
+        // TEMPO NORMAL RESTAURADO (0.8)
         if (stateTimer >= (0.8 / speedMultiplier)) {
           currentState = BossState.falling;
           stateTimer = 0.0;
