@@ -60,6 +60,15 @@ flutter:
     - assets/images/player_deflection_falha.png
     - assets/images/player_deflection_sucesso.png
     - assets/images/boss_idle.png
+    - assets/images/boss_reserva_parry.png
+    - assets/images/boss_reserva.png
+    - assets/images/boss_reserva_machucado.png
+    - assets/images/boss_reserva_atacando.png
+    - assets/images/espadada_boss.png
+    - assets/images/ivocacao_esquerda.png
+    - assets/images/ivocacao_direita.png
+    - assets/images/ataque_kunai_esquerda.png
+    - assets/images/ataque_kunai_direita.png
     
     #==================Audio==================
     - assets/audio/musica_padrao.mp3
