@@ -5,6 +5,9 @@ import 'package:flame_audio/flame_audio.dart';
 import 'package:flame/sprite.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/animation.dart'; // Para o efeito de "Freiada"
+import 'package:flame/events.dart'; // Para ler os cliques nos botões
+import 'package:flame/text.dart'; // Para escrever na tela sem precisar de imagens
 import 'dart:math';
 import 'dart:ui';
 import 'player.dart';
@@ -32,6 +35,121 @@ enum BossState {
 }
 
 enum SpecialAttack { aerialDrop, kunaiRain }
+
+// ==========================================
+// COMPONENTES DA TELA DE VITÓRIA (TEXTOS E BOTÕES QUE CAEM)
+// ==========================================
+
+class VictoryLetter extends TextComponent with HasGameRef<MyPixelGame> {
+  final double targetY;
+  final double delay;
+
+  VictoryLetter({
+    required String letter,
+    required Vector2 startPos,
+    required this.targetY,
+    required this.delay,
+  }) : super(text: letter, position: startPos, anchor: Anchor.center);
+
+  @override
+  Future<void> onLoad() async {
+    // Estilo da letra (Amarela com sombra preta)
+    textRenderer = TextPaint(
+      style: const TextStyle(
+        color: Colors.yellow,
+        fontSize: 56,
+        fontWeight: FontWeight.w900,
+        fontFamily: 'monospace', // Dá uma cara mais de "jogo"
+        shadows: [
+          Shadow(color: Colors.black, blurRadius: 4, offset: Offset(3, 3)),
+        ],
+      ),
+    );
+
+    // O Movimento com "Freiada"
+    add(
+      MoveEffect.to(
+        Vector2(position.x, targetY),
+        EffectController(
+          duration: 1.2,
+          startDelay: delay,
+          curve: Curves
+              .easeOutCubic, // <-- É aqui que acontece a mágica da freiada!
+        ),
+      ),
+    );
+  }
+}
+
+class VictoryButton extends PositionComponent
+    with HasGameRef<MyPixelGame>, TapCallbacks {
+  final String label;
+  final double targetY;
+  final double delay;
+  final VoidCallback onClick;
+
+  VictoryButton({
+    required this.label,
+    required Vector2 startPos,
+    required this.targetY,
+    required this.delay,
+    required this.onClick,
+  }) : super(position: startPos, size: Vector2(220, 55), anchor: Anchor.center);
+
+  @override
+  Future<void> onLoad() async {
+    final textComp = TextComponent(
+      text: label,
+      anchor: Anchor.center,
+      position: size / 2,
+      textRenderer: TextPaint(
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 24,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+    add(textComp);
+
+    add(
+      MoveEffect.to(
+        Vector2(position.x, targetY),
+        EffectController(
+          duration: 1.2,
+          startDelay: delay,
+          curve: Curves.easeOutCubic,
+        ),
+      ),
+    );
+  }
+
+  @override
+  void render(Canvas canvas) {
+    // Desenha uma caixinha preta com borda amarela para fingir ser um botão
+    final rect = size.toRect();
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(rect, const Radius.circular(8)),
+      Paint()..color = Colors.black87,
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(rect, const Radius.circular(8)),
+      Paint()
+        ..color = Colors.yellow
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3,
+    );
+  }
+
+  @override
+  void onTapDown(TapDownEvent event) {
+    onClick(); // Executa a função que passarmos pra ele!
+  }
+}
+
+// ==========================================
+// CLASSES DA LUTA (KUNAIS, EXPLOSÕES E O BOSS)
+// ==========================================
 
 class BossExplosion extends SpriteAnimationComponent
     with HasGameRef<MyPixelGame> {
@@ -219,6 +337,7 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
 
   bool jaTocouSomImpacto = false;
   bool jaVibrouNoChao = false;
+  bool victoryScreenSpawned = false; // Controle para invocar a UI uma vez só
 
   double hurtTimer = 0.0;
   double jumpStartX = 0.0;
@@ -259,7 +378,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
       );
       machucadoTicker = machucadoAnim.createTicker();
 
-      // AJUSTADO COM OS SEUS VALORES (100x100 e stepTime 1.0)
       final morrendoAnim = await gameRef.loadSpriteAnimation(
         'boss_morrendo.png',
         SpriteAnimationData.sequenced(
@@ -655,8 +773,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
             ),
           );
 
-          // EFEITO DE TREMOR DO BOSS (Tremendo para os lados)
-          // 60 repetições de 0.1s = 6 segundos exatos de tremor!
           add(
             MoveEffect.by(
               Vector2(8, 0),
@@ -678,20 +794,17 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
       case BossState.dying:
         morrendoTicker?.update(dt);
 
-        // Como o stepTime é 1.0 e tem 6 frames, ele demora exatos 6.0 segundos morrendo
         if (stateTimer >= 6.0) {
           currentState = BossState.exploding;
         }
         break;
 
       case BossState.exploding:
-
-        // EFEITO DA EXPLOSÃO FINAL NO CENÁRIO E NO CELULAR!
         HapticFeedback.vibrate();
 
         gameRef.camera.viewfinder.add(
           MoveEffect.by(
-            Vector2(25, 25), // Movimento brusco nas duas direções
+            Vector2(25, 25),
             EffectController(
               duration: 0.08,
               reverseDuration: 0.08,
@@ -709,7 +822,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
             priority: 15,
           ),
         );
-
         gameRef.world.add(
           BossExplosion(
             spriteName: 'corpo_explodindo.png',
@@ -725,11 +837,74 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
         break;
 
       case BossState.dead:
+        // Assim que chegar no estado 'morto', aciona a tela de vitória apenas UMA vez
+        if (!victoryScreenSpawned) {
+          victoryScreenSpawned = true;
+          _spawnVictoryScreen();
+        }
         break;
 
       default:
         break;
     }
+  }
+
+  // ==========================================
+  // FUNÇÃO QUE INVOCA OS BOTÕES E O TEXTO CÁINDO!
+  // ==========================================
+  void _spawnVictoryScreen() {
+    String text = "YOU WIN!";
+    double startX =
+        400 - ((text.length - 1) * 20); // Centraliza a frase na tela
+
+    // 1. Chove as letras lá de cima (-100 no Y)
+    for (int i = 0; i < text.length; i++) {
+      gameRef.world.add(
+        VictoryLetter(
+          letter: text[i],
+          startPos: Vector2(
+            startX + (i * 40),
+            -100,
+          ), // Vai pulando pro lado pra próxima letra
+          targetY:
+              groundLevelY - 200, // A posição onde a letra vai parar e freiar
+          delay:
+              i *
+              0.15, // Atrasa cada letra um pouquinho pra dar o efeito cascata
+        ),
+      );
+    }
+
+    double tempoAteTerminarLetras = (text.length * 0.15) + 0.5;
+
+    // 2. Chove o Botão de Restart
+    gameRef.world.add(
+      VictoryButton(
+        label: "RESTART",
+        startPos: Vector2(400, -100),
+        targetY: groundLevelY - 80,
+        delay: tempoAteTerminarLetras,
+        onClick: () {
+          debugPrint("Botão RESTART clicado!");
+          // gameRef.resetGame();  <-- Apenas descomente e chame sua função de reset aqui no futuro
+        },
+      ),
+    );
+
+    // 3. Chove o Botão de Menu mais abaixo do Restart
+    gameRef.world.add(
+      VictoryButton(
+        label: "MENU",
+        startPos: Vector2(400, -100),
+        targetY: groundLevelY - 10,
+        delay:
+            tempoAteTerminarLetras + 0.3, // Cai um tantinho depois do restart
+        onClick: () {
+          debugPrint("Botão MENU clicado!");
+          // gameRef.overlays.add('Menu'); <-- Apenas descomente e chame sua overlay de menu aqui no futuro
+        },
+      ),
+    );
   }
 
   void _atirarKunai() {
