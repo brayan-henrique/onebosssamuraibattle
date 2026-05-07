@@ -24,9 +24,51 @@ enum BossState {
   hovering,
   falling,
   kunaiAttack,
+
+  jumpingToCenter,
+  dying,
+  exploding,
+  dead,
 }
 
 enum SpecialAttack { aerialDrop, kunaiRain }
+
+class BossExplosion extends SpriteAnimationComponent
+    with HasGameRef<MyPixelGame> {
+  final String spriteName;
+  final int frameAmount;
+
+  BossExplosion({
+    required this.spriteName,
+    required this.frameAmount,
+    required Vector2 position,
+    required Vector2 size,
+    int priority = 0,
+  }) : super(
+         position: position,
+         size: size,
+         anchor: Anchor.center,
+         removeOnFinish: true,
+         priority: priority,
+       );
+
+  @override
+  Future<void> onLoad() async {
+    try {
+      animation = await gameRef.loadSpriteAnimation(
+        spriteName,
+        SpriteAnimationData.sequenced(
+          amount: frameAmount,
+          stepTime: 0.1,
+          textureSize: Vector2.all(96),
+          loop: false,
+        ),
+      );
+    } catch (e) {
+      debugPrint("Erro ao carregar explosão: $e");
+    }
+  }
+}
 
 class Kunai extends PositionComponent with HasGameRef<MyPixelGame> {
   final Player player;
@@ -179,11 +221,13 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
   bool jaVibrouNoChao = false;
 
   double hurtTimer = 0.0;
+  double jumpStartX = 0.0;
 
   Sprite? spriteIdle;
   Sprite? spriteAtacando;
   SpriteAnimationTicker? parryTicker;
   SpriteAnimationTicker? machucadoTicker;
+  SpriteAnimationTicker? morrendoTicker;
 
   Boss({required this.player})
     : super(size: Vector2.all(96), anchor: Anchor.center);
@@ -214,6 +258,18 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
         ),
       );
       machucadoTicker = machucadoAnim.createTicker();
+
+      // AJUSTADO COM OS SEUS VALORES (100x100 e stepTime 1.0)
+      final morrendoAnim = await gameRef.loadSpriteAnimation(
+        'boss_morrendo.png',
+        SpriteAnimationData.sequenced(
+          amount: 6,
+          stepTime: 1.0,
+          textureSize: Vector2.all(100),
+          loop: false,
+        ),
+      );
+      morrendoTicker = morrendoAnim.createTicker();
     } catch (e) {
       debugPrint("Erro ao carregar artes do boss: $e");
     }
@@ -230,19 +286,14 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
     armLeft.position = Vector2(size.x / 2, size.y / 2 + 10);
     add(armLeft);
 
-    // CHAPÉU: Tamanho 3x (96x96)
     chapeuComponent = SpriteComponent(
       size: Vector2(96, 96),
       anchor: Anchor.bottomCenter,
-      position: Vector2(
-        size.x / 2,
-        20,
-      ), // Ajustado levemente para encaixar com o novo tamanho
+      position: Vector2(size.x / 2, 20),
     );
     chapeuComponent.paint.color = chapeuComponent.paint.color.withOpacity(0.0);
     add(chapeuComponent);
 
-    // TOMO: Tamanho 2x (72x72), +10 X (frente), +10 Y (baixo)
     tomoComponent = SpriteComponent(
       size: Vector2(72, 72),
       anchor: Anchor.center,
@@ -261,7 +312,18 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
 
   @override
   void render(Canvas canvas) {
+    if (currentState == BossState.dead) return;
+
     super.render(canvas);
+
+    if (currentPhase == BossPhase.phase3 &&
+        (currentState == BossState.dying ||
+            currentState == BossState.exploding)) {
+      if (morrendoTicker != null) {
+        morrendoTicker!.getSprite().render(canvas, size: size);
+        return;
+      }
+    }
 
     if (hurtTimer > 0) {
       if (machucadoTicker != null) {
@@ -308,11 +370,13 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
       hurtTimer -= dt;
     }
 
-    if (currentHealth <= 0 && currentPhase != BossPhase.phase1) return;
-    if (currentPhase == BossPhase.phase1)
+    if (currentPhase == BossPhase.phase1) {
       _updatePhase1(dt);
-    else if (currentPhase == BossPhase.phase2)
+    } else if (currentPhase == BossPhase.phase2) {
       _updatePhase2(dt);
+    } else if (currentPhase == BossPhase.phase3) {
+      _updatePhase3(dt);
+    }
   }
 
   double _normalizeAngle(double angle) {
@@ -564,6 +628,110 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
     }
   }
 
+  void _updatePhase3(double dt) {
+    stateTimer += dt;
+
+    switch (currentState) {
+      case BossState.jumpingToCenter:
+        double jumpDuration = 0.6;
+        double progress = stateTimer / jumpDuration;
+
+        if (progress >= 1.0) {
+          position.x = 400.0;
+          position.y = groundLevelY;
+
+          currentState = BossState.dying;
+          stateTimer = 0.0;
+
+          HapticFeedback.vibrate();
+          gameRef.camera.viewfinder.add(
+            MoveEffect.by(
+              Vector2(0, 15),
+              EffectController(
+                duration: 0.1,
+                reverseDuration: 0.1,
+                repeatCount: 4,
+              ),
+            ),
+          );
+
+          // EFEITO DE TREMOR DO BOSS (Tremendo para os lados)
+          // 60 repetições de 0.1s = 6 segundos exatos de tremor!
+          add(
+            MoveEffect.by(
+              Vector2(8, 0),
+              EffectController(
+                duration: 0.05,
+                reverseDuration: 0.05,
+                repeatCount: 60,
+              ),
+            ),
+          );
+
+          morrendoTicker?.reset();
+        } else {
+          position.x = lerpDouble(jumpStartX, 400.0, progress)!;
+          position.y = groundLevelY - (sin(progress * pi) * 100);
+        }
+        break;
+
+      case BossState.dying:
+        morrendoTicker?.update(dt);
+
+        // Como o stepTime é 1.0 e tem 6 frames, ele demora exatos 6.0 segundos morrendo
+        if (stateTimer >= 6.0) {
+          currentState = BossState.exploding;
+        }
+        break;
+
+      case BossState.exploding:
+
+        // EFEITO DA EXPLOSÃO FINAL NO CENÁRIO E NO CELULAR!
+        HapticFeedback.vibrate();
+
+        gameRef.camera.viewfinder.add(
+          MoveEffect.by(
+            Vector2(25, 25), // Movimento brusco nas duas direções
+            EffectController(
+              duration: 0.08,
+              reverseDuration: 0.08,
+              repeatCount: 10,
+            ),
+          ),
+        );
+
+        gameRef.world.add(
+          BossExplosion(
+            spriteName: 'explosão_boss.png',
+            frameAmount: 6,
+            position: position.clone(),
+            size: Vector2.all(150),
+            priority: 15,
+          ),
+        );
+
+        gameRef.world.add(
+          BossExplosion(
+            spriteName: 'corpo_explodindo.png',
+            frameAmount: 6,
+            position: position.clone(),
+            size: Vector2.all(120),
+            priority: 25,
+          ),
+        );
+
+        currentState = BossState.dead;
+        debugPrint("BOSS FINALMENTE DERROTADO E EXPLODIU!");
+        break;
+
+      case BossState.dead:
+        break;
+
+      default:
+        break;
+    }
+  }
+
   void _atirarKunai() {
     double kunaiY = [
       groundLevelY,
@@ -573,7 +741,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
     ][Random().nextInt(4)];
     double dir = (position.x > 400) ? -1.0 : 1.0;
 
-    // KUNAIS NA FRENTE DE TUDO: Criamos a Kunai e adicionamos priority = 20
     Kunai novaKunai = Kunai(
       player: player,
       direction: dir,
@@ -585,6 +752,8 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
   }
 
   void receiveDamage(double damage) {
+    if (currentPhase == BossPhase.phase3) return;
+
     if (currentState == BossState.transitioning ||
         currentState == BossState.jumpingUp ||
         currentState == BossState.hovering ||
@@ -616,9 +785,24 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
         attackPool.clear();
         specialCooldown = 1.5;
       }
-    } else {
+    } else if (currentPhase == BossPhase.phase2) {
       currentHealth -= damage;
-      if (currentHealth <= 0) currentHealth = 0;
+      if (currentHealth <= 0) {
+        currentHealth = 0;
+        currentPhase = BossPhase.phase3;
+        currentState = BossState.jumpingToCenter;
+        jumpStartX = position.x;
+        stateTimer = 0.0;
+
+        armRight.add(OpacityEffect.fadeOut(EffectController(duration: 0.5)));
+        armLeft.add(OpacityEffect.fadeOut(EffectController(duration: 0.5)));
+        chapeuComponent.add(
+          OpacityEffect.fadeOut(EffectController(duration: 0.5)),
+        );
+        tomoComponent.add(
+          OpacityEffect.fadeOut(EffectController(duration: 0.5)),
+        );
+      }
     }
   }
 }

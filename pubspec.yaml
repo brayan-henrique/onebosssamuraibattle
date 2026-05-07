@@ -71,6 +71,9 @@ flutter:
     - assets/images/ataque_kunai_direita.png
     - assets/images/chapeu_mago.png
     - assets/images/tomo.png
+    - assets/images/explosão_boss.png
+    - assets/images/corpo_explodindo.png
+    - assets/images/boss_morrendo.png
     
     #==================Audio==================
     - assets/audio/musica_padrao.mp3
