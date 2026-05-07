@@ -130,7 +130,6 @@ class Kunai extends PositionComponent with HasGameRef<MyPixelGame> {
   }
 }
 
-// OS BRAÇOS AGORA SÃO SPRITECOMPONENTS PARA SUPORTAR O FADEOUT NATURALMENTE
 class BossArm extends SpriteComponent with HasGameRef<MyPixelGame> {
   BossArm() : super(size: Vector2(110, 15), anchor: Anchor.centerLeft);
 
@@ -146,12 +145,9 @@ class BossArm extends SpriteComponent with HasGameRef<MyPixelGame> {
   @override
   void render(Canvas canvas) {
     if (sprite == null) {
-      // Retângulo de backup respeitando a transparência (caso a imagem não exista)
       canvas.drawRect(size.toRect(), paint);
     }
-    super.render(
-      canvas,
-    ); // O SpriteComponent desenha a imagem automaticamente com o nível certo de opacidade
+    super.render(canvas);
   }
 }
 
@@ -176,7 +172,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
   late BossArm armRight;
   late BossArm armLeft;
 
-  // OS NOVOS COMPONENTES VISUAIS MÁGICOS
   late SpriteComponent chapeuComponent;
   late SpriteComponent tomoComponent;
 
@@ -228,7 +223,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
         ..paint.color = Colors.transparent,
     );
 
-    // Configurando e Adicionando as Espadas
     armRight = BossArm();
     armRight.position = Vector2(size.x / 2, size.y / 2 - 10);
     add(armRight);
@@ -236,29 +230,25 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
     armLeft.position = Vector2(size.x / 2, size.y / 2 + 10);
     add(armLeft);
 
-    // Configurando e Adicionando o Chapéu de Mago
+    // CHAPÉU: Tamanho 3x (96x96)
     chapeuComponent = SpriteComponent(
-      size: Vector2(32, 32),
-      anchor: Anchor.bottomCenter, // A base do chapéu gruda no ponto Y
-      position: Vector2(size.x / 2, 12), // Bem no topo da cabeça do boss
-    );
-    chapeuComponent.paint.color = chapeuComponent.paint.color.withOpacity(
-      0.0,
-    ); // Começa invisível
-    add(chapeuComponent);
-
-    // Configurando e Adicionando o Tomo
-    tomoComponent = SpriteComponent(
-      size: Vector2(36, 36),
-      anchor: Anchor.center,
+      size: Vector2(96, 96),
+      anchor: Anchor.bottomCenter,
       position: Vector2(
         size.x / 2,
-        size.y / 2,
-      ), // Exatamente no centro das espadas
+        20,
+      ), // Ajustado levemente para encaixar com o novo tamanho
     );
-    tomoComponent.paint.color = tomoComponent.paint.color.withOpacity(
-      0.0,
-    ); // Começa invisível
+    chapeuComponent.paint.color = chapeuComponent.paint.color.withOpacity(0.0);
+    add(chapeuComponent);
+
+    // TOMO: Tamanho 2x (72x72), +10 X (frente), +10 Y (baixo)
+    tomoComponent = SpriteComponent(
+      size: Vector2(72, 72),
+      anchor: Anchor.center,
+      position: Vector2((size.x / 2) + 10, (size.y / 2) + 10),
+    );
+    tomoComponent.paint.color = tomoComponent.paint.color.withOpacity(0.0);
     add(tomoComponent);
 
     try {
@@ -476,13 +466,10 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
             currentState = BossState.kunaiAttack;
             kunaisAtiradas = 0;
 
-            // --- INICIA A TRANSFORMAÇÃO (EFEITO FADE) ---
-            // Some as espadas
             armRight.add(
               OpacityEffect.fadeOut(EffectController(duration: 0.5)),
             );
             armLeft.add(OpacityEffect.fadeOut(EffectController(duration: 0.5)));
-            // Aparece os itens de Mago
             chapeuComponent.add(
               OpacityEffect.fadeIn(EffectController(duration: 0.5)),
             );
@@ -510,11 +497,8 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
             currentState = BossState.chasing;
             stateTimer = 0.0;
 
-            // --- REVERTE A TRANSFORMAÇÃO (EFEITO FADE) ---
-            // Volta as espadas
             armRight.add(OpacityEffect.fadeIn(EffectController(duration: 0.5)));
             armLeft.add(OpacityEffect.fadeIn(EffectController(duration: 0.5)));
-            // Esconde os itens de mago
             chapeuComponent.add(
               OpacityEffect.fadeOut(EffectController(duration: 0.5)),
             );
@@ -588,13 +572,16 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
       groundLevelY - 150,
     ][Random().nextInt(4)];
     double dir = (position.x > 400) ? -1.0 : 1.0;
-    gameRef.world.add(
-      Kunai(
-        player: player,
-        direction: dir,
-        position: Vector2(position.x + (dir * 40), kunaiY),
-      ),
+
+    // KUNAIS NA FRENTE DE TUDO: Criamos a Kunai e adicionamos priority = 20
+    Kunai novaKunai = Kunai(
+      player: player,
+      direction: dir,
+      position: Vector2(position.x + (dir * 40), kunaiY),
     );
+    novaKunai.priority = 20;
+
+    gameRef.world.add(novaKunai);
   }
 
   void receiveDamage(double damage) {
