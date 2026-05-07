@@ -237,7 +237,6 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
       );
       attack3Ticker = atk3Anim.createTicker();
 
-      // NOVAS ANIMAÇÕES DE PARRY (Ajuste o amount de acordo com suas imagens)
       final parrySucessoAnim = await gameRef.loadSpriteAnimation(
         'player_deflection_sucesso.png',
         SpriteAnimationData.sequenced(
@@ -278,7 +277,6 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
     stepTimer = stepInterval;
   }
 
-  // CANCELA QUALQUER AÇÃO EM ANDAMENTO (Ataques ou Defesas)
   void _cancelActions() {
     if (isAttacking) {
       isAttacking = false;
@@ -381,22 +379,19 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
   void receiveAttack(double bossDamage) {
     if (isInvincibleCheat || gameRef.bossDamageDisabled || isInvincible) return;
 
-    _cancelActions(); // Cancela ataques para forçar a animação de impacto/parry
+    _cancelActions();
 
     if (isBlocking) {
       if (blockTimer <= parryWindow) {
-        // PARRY PERFEITO!
         isParrySuccessAnim = true;
         parrySuccessTicker?.reset();
-        return; // Não toma dano
+        return;
       } else {
-        // FALHOU O TEMPO (Apenas bloqueio normal)
         health -= (bossDamage * 0.5);
         isParryFailAnim = true;
         parryFailTicker?.reset();
       }
     } else {
-      // DANO DIRETO
       health -= bossDamage;
     }
 
@@ -448,7 +443,6 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
       return;
     }
 
-    // Atualiza os tickers de Parry
     if (isParrySuccessAnim) {
       parrySuccessTicker?.update(dt);
       if (parrySuccessTicker?.done() == true) isParrySuccessAnim = false;
@@ -524,14 +518,33 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
           !hasDealtDamageThisStep) {
         hasDealtDamageThisStep = true;
 
-        if (boss != null && position.distanceTo(boss!.position) < 120) {
+        bool acertouAlgo = false; // Flag para desenhar o rastro da espada
+
+        // CORREÇÃO: O Player agora confere se a vida do boss é > 0. Se a vida for 0 (morte), não bate/comba mais.
+        if (boss != null &&
+            boss!.currentHealth > 0 &&
+            position.distanceTo(boss!.position) < 120) {
           boss!.receiveDamage(10.0 * damageMultiplier);
           hitCount++;
           specialMeter += (1.0 * comboMultiplier);
           if (specialMeter > 100.0) specialMeter = 100.0;
           timeSinceLastHit = 0.0;
           decayTimer = 0.0;
+          acertouAlgo = true;
+        }
 
+        // NOVO: A ESPADA CONFERE SE TEM ALGUM BOTÃO DE VITÓRIA PERTO PARA ACERTÁ-LO!
+        final botoes = gameRef.world.children.query<VictoryButton>();
+        for (final botao in botoes) {
+          if (position.distanceTo(botao.position) < 120) {
+            botao.receiveDamage(
+              1.0,
+            ); // O botão "sofre o dano" e chama a função dele
+            acertouAlgo = true;
+          }
+        }
+
+        if (acertouAlgo) {
           double finalX = isFacingRight
               ? deslocamentoManual.x
               : -deslocamentoManual.x;
@@ -544,7 +557,7 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
               isFacingRight: isFacingRight,
               frameAmount: effectAmount,
               effectScale: scaleEfeito,
-            )..priority = 100,
+            )..priority = 100, // Cortes da espada sempre na frente!
           );
         }
       }
@@ -615,16 +628,12 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
       canvas.scale(-1, 1);
     }
 
-    // A ORDEM DE PRIORIDADE DO RENDER É IMPORTANTE AQUI!
     if (isParalyzed && idleTicker != null) {
       idleTicker!.getSprite().render(canvas, size: size);
     } else if (isParrySuccessAnim && parrySuccessTicker != null) {
-      parrySuccessTicker!.getSprite().render(
-        canvas,
-        size: size,
-      ); // Toca o Sucesso
+      parrySuccessTicker!.getSprite().render(canvas, size: size);
     } else if (isParryFailAnim && parryFailTicker != null) {
-      parryFailTicker!.getSprite().render(canvas, size: size); // Toca a Falha
+      parryFailTicker!.getSprite().render(canvas, size: size);
     } else if (isAttacking) {
       if (currentAttackStep == 1 && attack1Ticker != null)
         attack1Ticker!.getSprite().render(canvas, size: size);

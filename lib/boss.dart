@@ -5,9 +5,8 @@ import 'package:flame_audio/flame_audio.dart';
 import 'package:flame/sprite.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/animation.dart'; // Para o efeito de "Freiada"
-import 'package:flame/events.dart'; // Para ler os cliques nos botões
-import 'package:flame/text.dart'; // Para escrever na tela sem precisar de imagens
+import 'package:flutter/animation.dart';
+import 'package:flame/text.dart';
 import 'dart:math';
 import 'dart:ui';
 import 'player.dart';
@@ -37,7 +36,7 @@ enum BossState {
 enum SpecialAttack { aerialDrop, kunaiRain }
 
 // ==========================================
-// COMPONENTES DA TELA DE VITÓRIA (TEXTOS E BOTÕES QUE CAEM)
+// TELA DE VITÓRIA
 // ==========================================
 
 class VictoryLetter extends TextComponent with HasGameRef<MyPixelGame> {
@@ -49,52 +48,60 @@ class VictoryLetter extends TextComponent with HasGameRef<MyPixelGame> {
     required Vector2 startPos,
     required this.targetY,
     required this.delay,
-  }) : super(text: letter, position: startPos, anchor: Anchor.center);
+  }) : super(
+         text: letter,
+         position: startPos,
+         anchor: Anchor.center,
+         priority: 1000,
+       ); // PRIORIDADE MÁXIMA
 
   @override
   Future<void> onLoad() async {
-    // Estilo da letra (Amarela com sombra preta)
     textRenderer = TextPaint(
       style: const TextStyle(
         color: Colors.yellow,
         fontSize: 56,
         fontWeight: FontWeight.w900,
-        fontFamily: 'monospace', // Dá uma cara mais de "jogo"
+        fontFamily: 'monospace',
         shadows: [
           Shadow(color: Colors.black, blurRadius: 4, offset: Offset(3, 3)),
         ],
       ),
     );
 
-    // O Movimento com "Freiada"
     add(
       MoveEffect.to(
         Vector2(position.x, targetY),
         EffectController(
           duration: 1.2,
           startDelay: delay,
-          curve: Curves
-              .easeOutCubic, // <-- É aqui que acontece a mágica da freiada!
+          curve: Curves.easeOutCubic,
         ),
       ),
     );
   }
 }
 
-class VictoryButton extends PositionComponent
-    with HasGameRef<MyPixelGame>, TapCallbacks {
+// BOTÃO TOTALMENTE FÍSICO E ATACÁVEL
+class VictoryButton extends PositionComponent with HasGameRef<MyPixelGame> {
   final String label;
   final double targetY;
   final double delay;
-  final VoidCallback onClick;
+  final VoidCallback onHit;
+  bool jaFoiAtingido = false;
 
   VictoryButton({
     required this.label,
     required Vector2 startPos,
     required this.targetY,
     required this.delay,
-    required this.onClick,
-  }) : super(position: startPos, size: Vector2(220, 55), anchor: Anchor.center);
+    required this.onHit,
+  }) : super(
+         position: startPos,
+         size: Vector2(220, 55),
+         anchor: Anchor.center,
+         priority: 1000,
+       ); // PRIORIDADE MÁXIMA
 
   @override
   Future<void> onLoad() async {
@@ -126,8 +133,12 @@ class VictoryButton extends PositionComponent
 
   @override
   void render(Canvas canvas) {
-    // Desenha uma caixinha preta com borda amarela para fingir ser um botão
+    super.render(canvas);
     final rect = size.toRect();
+
+    // Feedback visual quando a espada bater
+    Color borderColor = jaFoiAtingido ? Colors.green : Colors.yellow;
+
     canvas.drawRRect(
       RRect.fromRectAndRadius(rect, const Radius.circular(8)),
       Paint()..color = Colors.black87,
@@ -135,20 +146,30 @@ class VictoryButton extends PositionComponent
     canvas.drawRRect(
       RRect.fromRectAndRadius(rect, const Radius.circular(8)),
       Paint()
-        ..color = Colors.yellow
+        ..color = borderColor
         ..style = PaintingStyle.stroke
         ..strokeWidth = 3,
     );
   }
 
-  @override
-  void onTapDown(TapDownEvent event) {
-    onClick(); // Executa a função que passarmos pra ele!
+  void receiveDamage(double damage) {
+    if (jaFoiAtingido) return;
+    jaFoiAtingido = true;
+
+    HapticFeedback.lightImpact();
+    add(
+      ScaleEffect.to(
+        Vector2.all(0.9),
+        EffectController(duration: 0.1, alternate: true),
+      ),
+    );
+
+    onHit();
   }
 }
 
 // ==========================================
-// CLASSES DA LUTA (KUNAIS, EXPLOSÕES E O BOSS)
+// CLASSES DA LUTA
 // ==========================================
 
 class BossExplosion extends SpriteAnimationComponent
@@ -249,9 +270,7 @@ class Kunai extends PositionComponent with HasGameRef<MyPixelGame> {
 
     if (isInvoking) {
       invocationTicker?.update(dt);
-      if (invocationTicker?.done() == true) {
-        isInvoking = false;
-      }
+      if (invocationTicker?.done() == true) isInvoking = false;
       return;
     }
 
@@ -274,18 +293,16 @@ class Kunai extends PositionComponent with HasGameRef<MyPixelGame> {
     super.render(canvas);
 
     if (isInvoking) {
-      if (invocationTicker != null) {
+      if (invocationTicker != null)
         invocationTicker!.getSprite().render(canvas, size: size);
-      }
     } else {
-      if (kunaiSprite != null) {
+      if (kunaiSprite != null)
         kunaiSprite!.render(canvas, size: size);
-      } else {
+      else
         canvas.drawRect(
           size.toRect(),
           Paint()..color = Colors.deepPurpleAccent.withOpacity(0.3),
         );
-      }
     }
   }
 }
@@ -297,16 +314,12 @@ class BossArm extends SpriteComponent with HasGameRef<MyPixelGame> {
   Future<void> onLoad() async {
     try {
       sprite = await gameRef.loadSprite('espadada_boss.png');
-    } catch (e) {
-      debugPrint("Erro ao carregar espadada_boss.png: $e");
-    }
+    } catch (e) {}
   }
 
   @override
   void render(Canvas canvas) {
-    if (sprite == null) {
-      canvas.drawRect(size.toRect(), paint);
-    }
+    if (sprite == null) canvas.drawRect(size.toRect(), paint);
     super.render(canvas);
   }
 }
@@ -334,10 +347,11 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
 
   late SpriteComponent chapeuComponent;
   late SpriteComponent tomoComponent;
+  late RectangleHitbox bossHitbox;
 
   bool jaTocouSomImpacto = false;
   bool jaVibrouNoChao = false;
-  bool victoryScreenSpawned = false; // Controle para invocar a UI uma vez só
+  bool victoryScreenSpawned = false;
 
   double hurtTimer = 0.0;
   double jumpStartX = 0.0;
@@ -392,10 +406,11 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
       debugPrint("Erro ao carregar artes do boss: $e");
     }
 
-    add(
-      RectangleHitbox(size: Vector2(64, 96), position: Vector2(16, 0))
-        ..paint.color = Colors.transparent,
-    );
+    bossHitbox = RectangleHitbox(
+      size: Vector2(64, 96),
+      position: Vector2(16, 0),
+    )..paint.color = Colors.transparent;
+    add(bossHitbox);
 
     armRight = BossArm();
     armRight.position = Vector2(size.x / 2, size.y / 2 - 10);
@@ -423,25 +438,24 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
     try {
       chapeuComponent.sprite = await gameRef.loadSprite('chapeu_mago.png');
       tomoComponent.sprite = await gameRef.loadSprite('tomo.png');
-    } catch (e) {
-      debugPrint("Erro ao carregar chapeu ou tomo: $e");
-    }
+    } catch (e) {}
   }
 
   @override
   void render(Canvas canvas) {
     if (currentState == BossState.dead) return;
 
-    super.render(canvas);
-
+    // CORREÇÃO: Pula TOTALMENTE o corpo base, braços e chapéu e foca só na morte.
     if (currentPhase == BossPhase.phase3 &&
         (currentState == BossState.dying ||
             currentState == BossState.exploding)) {
       if (morrendoTicker != null) {
         morrendoTicker!.getSprite().render(canvas, size: size);
-        return;
       }
+      return;
     }
+
+    super.render(canvas);
 
     if (hurtTimer > 0) {
       if (machucadoTicker != null) {
@@ -484,17 +498,14 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
     parryTicker?.update(dt);
     machucadoTicker?.update(dt);
 
-    if (hurtTimer > 0) {
-      hurtTimer -= dt;
-    }
+    if (hurtTimer > 0) hurtTimer -= dt;
 
-    if (currentPhase == BossPhase.phase1) {
+    if (currentPhase == BossPhase.phase1)
       _updatePhase1(dt);
-    } else if (currentPhase == BossPhase.phase2) {
+    else if (currentPhase == BossPhase.phase2)
       _updatePhase2(dt);
-    } else if (currentPhase == BossPhase.phase3) {
+    else if (currentPhase == BossPhase.phase3)
       _updatePhase3(dt);
-    }
   }
 
   double _normalizeAngle(double angle) {
@@ -537,7 +548,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
         double diff = _normalizeAngle(windupTarget - armRight.angle);
         armRight.angle += diff * 15.0 * dt;
         armLeft.angle = armRight.angle;
-
         if (stateTimer >= 0.4) {
           currentState = BossState.swinging;
           stateTimer = 0.0;
@@ -546,7 +556,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
       case BossState.swinging:
         double windupTarget = attackTargetAngle - (1.5 * attackDirection);
         double swingTarget = attackTargetAngle + (1.8 * attackDirection);
-
         double progress = stateTimer / 0.2;
         if (progress > 1.0) progress = 1.0;
         armRight.angle = lerpDouble(windupTarget, swingTarget, progress)!;
@@ -575,7 +584,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
       case BossState.vulnerable:
         armRight.angle = lerpDouble(armRight.angle, pi / 2, 5.0 * dt)!;
         armLeft.angle = armRight.angle;
-
         if (stateTimer >= 1.6) {
           if (Random().nextDouble() < 0.4) {
             currentState = BossState.parryStance;
@@ -592,7 +600,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
             : ((3 * pi) / 4);
         armRight.angle = lerpDouble(armRight.angle, parryAngle, 10.0 * dt)!;
         armLeft.angle = armRight.angle + 0.5;
-
         if (stateTimer >= 2.5) {
           currentState = BossState.chasing;
           stateTimer = 0.0;
@@ -608,10 +615,8 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
     double percentHealthLost = (1.0 - (currentHealth / maxHealth)) * 100;
     double speedMultiplier = 1.0 + ((percentHealthLost / 10).floor() * 0.04);
 
-    if (currentState == BossState.windup ||
-        currentState == BossState.swinging) {
+    if (currentState == BossState.windup || currentState == BossState.swinging)
       specialCooldown -= dt;
-    }
 
     if (specialCooldown <= 0 &&
         (currentState == BossState.chasing ||
@@ -622,7 +627,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
       }
       queuedSpecial = attackPool.removeLast();
       specialCooldown = Random().nextDouble() * 2.0 + 2.0;
-
       currentState = BossState.jumpingAway;
       stateTimer = 0.0;
       return;
@@ -647,7 +651,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
           } else if (queuedSpecial == SpecialAttack.kunaiRain) {
             currentState = BossState.kunaiAttack;
             kunaisAtiradas = 0;
-
             armRight.add(
               OpacityEffect.fadeOut(EffectController(duration: 0.5)),
             );
@@ -666,10 +669,8 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
       case BossState.kunaiAttack:
         armRight.angle = pi / 2;
         armLeft.angle = pi / 2;
-
         double tempoDeTiro = 0.35 / speedMultiplier;
         if (tempoDeTiro < 0.10) tempoDeTiro = 0.10;
-
         if (stateTimer >= tempoDeTiro) {
           if (kunaisAtiradas < 30) {
             _atirarKunai();
@@ -678,7 +679,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
           } else if (stateTimer >= 2.5) {
             currentState = BossState.chasing;
             stateTimer = 0.0;
-
             armRight.add(OpacityEffect.fadeIn(EffectController(duration: 0.5)));
             armLeft.add(OpacityEffect.fadeIn(EffectController(duration: 0.5)));
             chapeuComponent.add(
@@ -757,7 +757,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
         if (progress >= 1.0) {
           position.x = 400.0;
           position.y = groundLevelY;
-
           currentState = BossState.dying;
           stateTimer = 0.0;
 
@@ -783,7 +782,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
               ),
             ),
           );
-
           morrendoTicker?.reset();
         } else {
           position.x = lerpDouble(jumpStartX, 400.0, progress)!;
@@ -793,15 +791,11 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
 
       case BossState.dying:
         morrendoTicker?.update(dt);
-
-        if (stateTimer >= 6.0) {
-          currentState = BossState.exploding;
-        }
+        if (stateTimer >= 6.0) currentState = BossState.exploding;
         break;
 
       case BossState.exploding:
         HapticFeedback.vibrate();
-
         gameRef.camera.viewfinder.add(
           MoveEffect.by(
             Vector2(25, 25),
@@ -812,7 +806,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
             ),
           ),
         );
-
         gameRef.world.add(
           BossExplosion(
             spriteName: 'explosão_boss.png',
@@ -837,7 +830,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
         break;
 
       case BossState.dead:
-        // Assim que chegar no estado 'morto', aciona a tela de vitória apenas UMA vez
         if (!victoryScreenSpawned) {
           victoryScreenSpawned = true;
           _spawnVictoryScreen();
@@ -849,59 +841,47 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
     }
   }
 
-  // ==========================================
-  // FUNÇÃO QUE INVOCA OS BOTÕES E O TEXTO CÁINDO!
-  // ==========================================
   void _spawnVictoryScreen() {
     String text = "YOU WIN!";
-    double startX =
-        400 - ((text.length - 1) * 20); // Centraliza a frase na tela
+    double startX = 400 - ((text.length - 1) * 20);
 
-    // 1. Chove as letras lá de cima (-100 no Y)
     for (int i = 0; i < text.length; i++) {
       gameRef.world.add(
         VictoryLetter(
           letter: text[i],
-          startPos: Vector2(
-            startX + (i * 40),
-            -100,
-          ), // Vai pulando pro lado pra próxima letra
-          targetY:
-              groundLevelY - 200, // A posição onde a letra vai parar e freiar
-          delay:
-              i *
-              0.15, // Atrasa cada letra um pouquinho pra dar o efeito cascata
+          startPos: Vector2(startX + (i * 40), -100),
+          targetY: groundLevelY - 200,
+          delay: i * 0.15,
         ),
       );
     }
 
     double tempoAteTerminarLetras = (text.length * 0.15) + 0.5;
 
-    // 2. Chove o Botão de Restart
+    // BOTÃO ATACÁVEL DE RESTART
     gameRef.world.add(
       VictoryButton(
         label: "RESTART",
         startPos: Vector2(400, -100),
         targetY: groundLevelY - 80,
         delay: tempoAteTerminarLetras,
-        onClick: () {
-          debugPrint("Botão RESTART clicado!");
-          // gameRef.resetGame();  <-- Apenas descomente e chame sua função de reset aqui no futuro
+        onHit: () {
+          debugPrint("Botão RESTART atacado!");
+          // gameRef.resetGame(); // Substitua pela sua função de reinício
         },
       ),
     );
 
-    // 3. Chove o Botão de Menu mais abaixo do Restart
+    // BOTÃO ATACÁVEL DE MENU
     gameRef.world.add(
       VictoryButton(
         label: "MENU",
         startPos: Vector2(400, -100),
         targetY: groundLevelY - 10,
-        delay:
-            tempoAteTerminarLetras + 0.3, // Cai um tantinho depois do restart
-        onClick: () {
-          debugPrint("Botão MENU clicado!");
-          // gameRef.overlays.add('Menu'); <-- Apenas descomente e chame sua overlay de menu aqui no futuro
+        delay: tempoAteTerminarLetras + 0.3,
+        onHit: () {
+          debugPrint("Botão MENU atacado!");
+          gameRef.overlays.add('Menu'); // Abre a sua overlay de Menu!
         },
       ),
     );
@@ -915,20 +895,17 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
       groundLevelY - 150,
     ][Random().nextInt(4)];
     double dir = (position.x > 400) ? -1.0 : 1.0;
-
     Kunai novaKunai = Kunai(
       player: player,
       direction: dir,
       position: Vector2(position.x + (dir * 40), kunaiY),
     );
     novaKunai.priority = 20;
-
     gameRef.world.add(novaKunai);
   }
 
   void receiveDamage(double damage) {
     if (currentPhase == BossPhase.phase3) return;
-
     if (currentState == BossState.transitioning ||
         currentState == BossState.jumpingUp ||
         currentState == BossState.hovering ||
@@ -968,6 +945,11 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
         currentState = BossState.jumpingToCenter;
         jumpStartX = position.x;
         stateTimer = 0.0;
+
+        // CORREÇÃO: Remove a hitbox para não ser mais possível combar no corpo do boss
+        if (bossHitbox.isMounted) {
+          bossHitbox.removeFromParent();
+        }
 
         armRight.add(OpacityEffect.fadeOut(EffectController(duration: 0.5)));
         armLeft.add(OpacityEffect.fadeOut(EffectController(duration: 0.5)));
