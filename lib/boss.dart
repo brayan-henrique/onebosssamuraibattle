@@ -58,7 +58,7 @@ class Kunai extends PositionComponent with HasGameRef<MyPixelGame> {
           SpriteAnimationData.sequenced(
             amount: 6,
             stepTime: 0.1,
-            textureSize: Vector2(32, 32),
+            textureSize: Vector2(30, 34),
             loop: false,
           ),
         );
@@ -70,7 +70,7 @@ class Kunai extends PositionComponent with HasGameRef<MyPixelGame> {
           SpriteAnimationData.sequenced(
             amount: 6,
             stepTime: 0.1,
-            textureSize: Vector2(32, 32),
+            textureSize: Vector2(30, 34),
             loop: false,
           ),
         );
@@ -130,15 +130,14 @@ class Kunai extends PositionComponent with HasGameRef<MyPixelGame> {
   }
 }
 
-class BossArm extends PositionComponent with HasGameRef<MyPixelGame> {
-  Sprite? espadaSprite;
-
+// OS BRAÇOS AGORA SÃO SPRITECOMPONENTS PARA SUPORTAR O FADEOUT NATURALMENTE
+class BossArm extends SpriteComponent with HasGameRef<MyPixelGame> {
   BossArm() : super(size: Vector2(110, 15), anchor: Anchor.centerLeft);
 
   @override
   Future<void> onLoad() async {
     try {
-      espadaSprite = await gameRef.loadSprite('espadada_boss.png');
+      sprite = await gameRef.loadSprite('espadada_boss.png');
     } catch (e) {
       debugPrint("Erro ao carregar espadada_boss.png: $e");
     }
@@ -146,19 +145,19 @@ class BossArm extends PositionComponent with HasGameRef<MyPixelGame> {
 
   @override
   void render(Canvas canvas) {
-    super.render(canvas);
-    if (espadaSprite != null) {
-      espadaSprite!.render(canvas, size: size);
-    } else {
-      canvas.drawRect(size.toRect(), Paint()..color = Colors.black);
+    if (sprite == null) {
+      // Retângulo de backup respeitando a transparência (caso a imagem não exista)
+      canvas.drawRect(size.toRect(), paint);
     }
+    super.render(
+      canvas,
+    ); // O SpriteComponent desenha a imagem automaticamente com o nível certo de opacidade
   }
 }
 
 class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
   final Player player;
 
-  // Vida pela metade na primeira fase
   double maxHealth = 500.0;
   double currentHealth = 500.0;
 
@@ -173,8 +172,14 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
   double specialCooldown = 1.5;
   SpecialAttack? queuedSpecial;
   List<SpecialAttack> attackPool = [];
+
   late BossArm armRight;
   late BossArm armLeft;
+
+  // OS NOVOS COMPONENTES VISUAIS MÁGICOS
+  late SpriteComponent chapeuComponent;
+  late SpriteComponent tomoComponent;
+
   bool jaTocouSomImpacto = false;
   bool jaVibrouNoChao = false;
 
@@ -222,12 +227,46 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
       RectangleHitbox(size: Vector2(64, 96), position: Vector2(16, 0))
         ..paint.color = Colors.transparent,
     );
+
+    // Configurando e Adicionando as Espadas
     armRight = BossArm();
     armRight.position = Vector2(size.x / 2, size.y / 2 - 10);
     add(armRight);
     armLeft = BossArm();
     armLeft.position = Vector2(size.x / 2, size.y / 2 + 10);
     add(armLeft);
+
+    // Configurando e Adicionando o Chapéu de Mago
+    chapeuComponent = SpriteComponent(
+      size: Vector2(32, 32),
+      anchor: Anchor.bottomCenter, // A base do chapéu gruda no ponto Y
+      position: Vector2(size.x / 2, 12), // Bem no topo da cabeça do boss
+    );
+    chapeuComponent.paint.color = chapeuComponent.paint.color.withOpacity(
+      0.0,
+    ); // Começa invisível
+    add(chapeuComponent);
+
+    // Configurando e Adicionando o Tomo
+    tomoComponent = SpriteComponent(
+      size: Vector2(36, 36),
+      anchor: Anchor.center,
+      position: Vector2(
+        size.x / 2,
+        size.y / 2,
+      ), // Exatamente no centro das espadas
+    );
+    tomoComponent.paint.color = tomoComponent.paint.color.withOpacity(
+      0.0,
+    ); // Começa invisível
+    add(tomoComponent);
+
+    try {
+      chapeuComponent.sprite = await gameRef.loadSprite('chapeu_mago.png');
+      tomoComponent.sprite = await gameRef.loadSprite('tomo.png');
+    } catch (e) {
+      debugPrint("Erro ao carregar chapeu ou tomo: $e");
+    }
   }
 
   @override
@@ -327,7 +366,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
         armRight.angle += diff * 15.0 * dt;
         armLeft.angle = armRight.angle;
 
-        // TEMPO NORMAL RESTAURADO (0.4)
         if (stateTimer >= 0.4) {
           currentState = BossState.swinging;
           stateTimer = 0.0;
@@ -337,7 +375,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
         double windupTarget = attackTargetAngle - (1.5 * attackDirection);
         double swingTarget = attackTargetAngle + (1.8 * attackDirection);
 
-        // TEMPO NORMAL RESTAURADO (0.2)
         double progress = stateTimer / 0.2;
         if (progress > 1.0) progress = 1.0;
         armRight.angle = lerpDouble(windupTarget, swingTarget, progress)!;
@@ -367,7 +404,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
         armRight.angle = lerpDouble(armRight.angle, pi / 2, 5.0 * dt)!;
         armLeft.angle = armRight.angle;
 
-        // MANTIDO TEMPO MAIOR DE DESCANSO (1.6)
         if (stateTimer >= 1.6) {
           if (Random().nextDouble() < 0.4) {
             currentState = BossState.parryStance;
@@ -385,7 +421,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
         armRight.angle = lerpDouble(armRight.angle, parryAngle, 10.0 * dt)!;
         armLeft.angle = armRight.angle + 0.5;
 
-        // MANTIDO TEMPO MAIOR EM DEFESA (2.5)
         if (stateTimer >= 2.5) {
           currentState = BossState.chasing;
           stateTimer = 0.0;
@@ -401,7 +436,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
     double percentHealthLost = (1.0 - (currentHealth / maxHealth)) * 100;
     double speedMultiplier = 1.0 + ((percentHealthLost / 10).floor() * 0.04);
 
-    // ESTE É O CRONÔMETRO QUE RODA ENQUANTO ELE BATE NA GENTE
     if (currentState == BossState.windup ||
         currentState == BossState.swinging) {
       specialCooldown -= dt;
@@ -415,8 +449,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
         attackPool.shuffle();
       }
       queuedSpecial = attackPool.removeLast();
-
-      // AQUI ESTÁ A CORREÇÃO: Cronômetro diminuído pela metade! Agora é de 2.0 a 4.0 segundos.
       specialCooldown = Random().nextDouble() * 2.0 + 2.0;
 
       currentState = BossState.jumpingAway;
@@ -443,6 +475,20 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
           } else if (queuedSpecial == SpecialAttack.kunaiRain) {
             currentState = BossState.kunaiAttack;
             kunaisAtiradas = 0;
+
+            // --- INICIA A TRANSFORMAÇÃO (EFEITO FADE) ---
+            // Some as espadas
+            armRight.add(
+              OpacityEffect.fadeOut(EffectController(duration: 0.5)),
+            );
+            armLeft.add(OpacityEffect.fadeOut(EffectController(duration: 0.5)));
+            // Aparece os itens de Mago
+            chapeuComponent.add(
+              OpacityEffect.fadeIn(EffectController(duration: 0.5)),
+            );
+            tomoComponent.add(
+              OpacityEffect.fadeIn(EffectController(duration: 0.5)),
+            );
           }
           queuedSpecial = null;
           stateTimer = 0.0;
@@ -452,7 +498,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
         armRight.angle = pi / 2;
         armLeft.angle = pi / 2;
 
-        // TEMPO NORMAL RESTAURADO PARA KUNAIS (0.35)
         double tempoDeTiro = 0.35 / speedMultiplier;
         if (tempoDeTiro < 0.10) tempoDeTiro = 0.10;
 
@@ -464,6 +509,18 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
           } else if (stateTimer >= 2.5) {
             currentState = BossState.chasing;
             stateTimer = 0.0;
+
+            // --- REVERTE A TRANSFORMAÇÃO (EFEITO FADE) ---
+            // Volta as espadas
+            armRight.add(OpacityEffect.fadeIn(EffectController(duration: 0.5)));
+            armLeft.add(OpacityEffect.fadeIn(EffectController(duration: 0.5)));
+            // Esconde os itens de mago
+            chapeuComponent.add(
+              OpacityEffect.fadeOut(EffectController(duration: 0.5)),
+            );
+            tomoComponent.add(
+              OpacityEffect.fadeOut(EffectController(duration: 0.5)),
+            );
           }
         }
         break;
@@ -478,7 +535,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
         break;
       case BossState.hovering:
         position.x = player.position.x;
-        // TEMPO NORMAL RESTAURADO (0.8)
         if (stateTimer >= (0.8 / speedMultiplier)) {
           currentState = BossState.falling;
           stateTimer = 0.0;

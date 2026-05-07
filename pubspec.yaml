@@ -69,6 +69,8 @@ flutter:
     - assets/images/ivocacao_direita.png
     - assets/images/ataque_kunai_esquerda.png
     - assets/images/ataque_kunai_direita.png
+    - assets/images/chapeu_mago.png
+    - assets/images/tomo.png
     
     #==================Audio==================
     - assets/audio/musica_padrao.mp3
