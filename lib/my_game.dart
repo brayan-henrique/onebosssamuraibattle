@@ -323,7 +323,6 @@ class MyPixelGame extends FlameGame with HasCollisionDetection {
     camera.viewfinder.anchor = Anchor.topLeft;
 
     try {
-      // ADICIONADO AQUI: 'impacto_boss.mp3' foi inserido na lista
       await FlameAudio.audioCache.loadAll([
         'musica_padrao.mp3',
         'musica_morte.mp3',
@@ -492,7 +491,9 @@ class MyPixelGame extends FlameGame with HasCollisionDetection {
     }
   }
 
+  // A MÁGICA ACONTECE AQUI! A função agora reseta o boss e varre os botões da tela.
   void resetGame() {
+    // 1. Reseta o Player
     player.health = 5.0;
     player.specialMeter = 0.0;
     player.comboMultiplier = 1;
@@ -508,17 +509,23 @@ class MyPixelGame extends FlameGame with HasCollisionDetection {
     player.isDashing = false;
     player.dashCooldownTimer = 0.0;
 
-    boss.maxHealth = 1000.0;
-    boss.currentHealth = boss.maxHealth;
-    boss.currentPhase = BossPhase.phase1;
-    boss.currentState = BossState.chasing;
-    boss.position = Vector2(600, 278);
-    boss.stateTimer = 0.0;
-    boss.saltosRestantes = 0;
+    // 2. Reseta o Boss completamente (usando a função nova do boss.dart)
+    boss.resetBoss();
 
+    // 3. Limpa todas as Kunais, Botões, Letras e Explosões mortas da tela!
     world.children.whereType<Kunai>().forEach(
       (kunai) => kunai.removeFromParent(),
     );
+    world.children.whereType<VictoryLetter>().forEach(
+      (c) => c.removeFromParent(),
+    );
+    world.children.whereType<VictoryButton>().forEach(
+      (c) => c.removeFromParent(),
+    );
+    world.children.whereType<BossExplosion>().forEach(
+      (c) => c.removeFromParent(),
+    );
+
     resumeEngine();
   }
 

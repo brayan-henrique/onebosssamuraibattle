@@ -11,6 +11,7 @@ import 'dart:math';
 import 'dart:ui';
 import 'player.dart';
 import 'my_game.dart';
+import 'settings_overlay.dart'; // NECESSÁRIO PARA LER O VOLUME DA MÚSICA
 
 enum BossPhase { phase1, phase2, phase3 }
 
@@ -36,7 +37,7 @@ enum BossState {
 enum SpecialAttack { aerialDrop, kunaiRain }
 
 // ==========================================
-// TELA DE VITÓRIA
+// TELA DE VITÓRIA (PRIORIDADE 1000)
 // ==========================================
 
 class VictoryLetter extends TextComponent with HasGameRef<MyPixelGame> {
@@ -53,7 +54,7 @@ class VictoryLetter extends TextComponent with HasGameRef<MyPixelGame> {
          position: startPos,
          anchor: Anchor.center,
          priority: 1000,
-       ); // PRIORIDADE MÁXIMA
+       );
 
   @override
   Future<void> onLoad() async {
@@ -82,7 +83,6 @@ class VictoryLetter extends TextComponent with HasGameRef<MyPixelGame> {
   }
 }
 
-// BOTÃO TOTALMENTE FÍSICO E ATACÁVEL
 class VictoryButton extends PositionComponent with HasGameRef<MyPixelGame> {
   final String label;
   final double targetY;
@@ -101,10 +101,12 @@ class VictoryButton extends PositionComponent with HasGameRef<MyPixelGame> {
          size: Vector2(220, 55),
          anchor: Anchor.center,
          priority: 1000,
-       ); // PRIORIDADE MÁXIMA
+       );
 
   @override
   Future<void> onLoad() async {
+    add(RectangleHitbox());
+
     final textComp = TextComponent(
       text: label,
       anchor: Anchor.center,
@@ -136,7 +138,6 @@ class VictoryButton extends PositionComponent with HasGameRef<MyPixelGame> {
     super.render(canvas);
     final rect = size.toRect();
 
-    // Feedback visual quando a espada bater
     Color borderColor = jaFoiAtingido ? Colors.green : Colors.yellow;
 
     canvas.drawRRect(
@@ -203,9 +204,7 @@ class BossExplosion extends SpriteAnimationComponent
           loop: false,
         ),
       );
-    } catch (e) {
-      debugPrint("Erro ao carregar explosão: $e");
-    }
+    } catch (e) {}
   }
 }
 
@@ -216,7 +215,6 @@ class Kunai extends PositionComponent with HasGameRef<MyPixelGame> {
   bool hasHit = false;
 
   bool isInvoking = true;
-
   SpriteAnimationTicker? invocationTicker;
   Sprite? kunaiSprite;
 
@@ -229,7 +227,6 @@ class Kunai extends PositionComponent with HasGameRef<MyPixelGame> {
   @override
   Future<void> onLoad() async {
     add(RectangleHitbox()..paint.color = Colors.transparent);
-
     bool bossNaEsquerda = direction == 1.0;
 
     try {
@@ -258,9 +255,7 @@ class Kunai extends PositionComponent with HasGameRef<MyPixelGame> {
         invocationTicker = anim.createTicker();
         kunaiSprite = await gameRef.loadSprite('ataque_kunai_direita.png');
       }
-    } catch (e) {
-      debugPrint("Erro ao carregar sprites da kunai: $e");
-    }
+    } catch (e) {}
   }
 
   @override
@@ -275,7 +270,6 @@ class Kunai extends PositionComponent with HasGameRef<MyPixelGame> {
     }
 
     position.x += speed * direction * dt;
-
     if (position.x < -100 || position.x > 900) {
       removeFromParent();
       return;
@@ -291,7 +285,6 @@ class Kunai extends PositionComponent with HasGameRef<MyPixelGame> {
   @override
   void render(Canvas canvas) {
     super.render(canvas);
-
     if (isInvoking) {
       if (invocationTicker != null)
         invocationTicker!.getSprite().render(canvas, size: size);
@@ -344,7 +337,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
 
   late BossArm armRight;
   late BossArm armLeft;
-
   late SpriteComponent chapeuComponent;
   late SpriteComponent tomoComponent;
   late RectangleHitbox bossHitbox;
@@ -402,9 +394,7 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
         ),
       );
       morrendoTicker = morrendoAnim.createTicker();
-    } catch (e) {
-      debugPrint("Erro ao carregar artes do boss: $e");
-    }
+    } catch (e) {}
 
     bossHitbox = RectangleHitbox(
       size: Vector2(64, 96),
@@ -441,17 +431,52 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
     } catch (e) {}
   }
 
+  // A NOVA FUNÇÃO QUE O MY_GAME VAI CHAMAR PARA RESSUSCITAR O BOSS
+  void resetBoss() {
+    maxHealth = 500.0;
+    currentHealth = 500.0;
+    currentPhase = BossPhase.phase1;
+    currentState = BossState.chasing;
+    position = Vector2(600, 278);
+    stateTimer = 0.0;
+    saltosRestantes = 0;
+    victoryScreenSpawned = false;
+    hurtTimer = 0.0;
+
+    // Garante que a hitbox de dar porrada no boss existe de novo
+    if (!bossHitbox.isMounted) {
+      add(bossHitbox);
+    }
+
+    // Limpa todos os efeitos de "desaparecer" (fade out) da magia
+    armRight.removeAll(armRight.children.whereType<OpacityEffect>());
+    armRight.paint.color = armRight.paint.color.withOpacity(1.0);
+
+    armLeft.removeAll(armLeft.children.whereType<OpacityEffect>());
+    armLeft.paint.color = armLeft.paint.color.withOpacity(1.0);
+
+    chapeuComponent.removeAll(
+      chapeuComponent.children.whereType<OpacityEffect>(),
+    );
+    chapeuComponent.paint.color = chapeuComponent.paint.color.withOpacity(0.0);
+
+    tomoComponent.removeAll(tomoComponent.children.whereType<OpacityEffect>());
+    tomoComponent.paint.color = tomoComponent.paint.color.withOpacity(0.0);
+
+    morrendoTicker?.reset();
+    parryTicker?.reset();
+    machucadoTicker?.reset();
+  }
+
   @override
   void render(Canvas canvas) {
     if (currentState == BossState.dead) return;
 
-    // CORREÇÃO: Pula TOTALMENTE o corpo base, braços e chapéu e foca só na morte.
     if (currentPhase == BossPhase.phase3 &&
         (currentState == BossState.dying ||
             currentState == BossState.exploding)) {
-      if (morrendoTicker != null) {
+      if (morrendoTicker != null)
         morrendoTicker!.getSprite().render(canvas, size: size);
-      }
       return;
     }
 
@@ -858,7 +883,7 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
 
     double tempoAteTerminarLetras = (text.length * 0.15) + 0.5;
 
-    // BOTÃO ATACÁVEL DE RESTART
+    // BOTÃO RESTART CONECTADO AO MY_GAME
     gameRef.world.add(
       VictoryButton(
         label: "RESTART",
@@ -866,13 +891,16 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
         targetY: groundLevelY - 80,
         delay: tempoAteTerminarLetras,
         onHit: () {
-          debugPrint("Botão RESTART atacado!");
-          // gameRef.resetGame(); // Substitua pela sua função de reinício
+          // Delay de 0.3s só pra você conseguir ver o botão afundar e ficar verde antes de resetar a tela
+          Future.delayed(const Duration(milliseconds: 300), () {
+            gameRef.resetGame();
+            FlameAudio.bgm.play('musica_padrao.mp3', volume: AudioManager.bgm);
+          });
         },
       ),
     );
 
-    // BOTÃO ATACÁVEL DE MENU
+    // BOTÃO MENU CONECTADO AO MENU_SCREEN
     gameRef.world.add(
       VictoryButton(
         label: "MENU",
@@ -880,8 +908,12 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
         targetY: groundLevelY - 10,
         delay: tempoAteTerminarLetras + 0.3,
         onHit: () {
-          debugPrint("Botão MENU atacado!");
-          gameRef.overlays.add('Menu'); // Abre a sua overlay de Menu!
+          // Delay de 0.3s pelo mesmo motivo
+          Future.delayed(const Duration(milliseconds: 300), () {
+            gameRef.resetGame(); // Limpa tudo antes de sair
+            FlameAudio.bgm.stop(); // Para a música
+            gameRef.onBackToMenu?.call(); // Aciona a volta para a tela inicial
+          });
         },
       ),
     );
@@ -946,7 +978,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
         jumpStartX = position.x;
         stateTimer = 0.0;
 
-        // CORREÇÃO: Remove a hitbox para não ser mais possível combar no corpo do boss
         if (bossHitbox.isMounted) {
           bossHitbox.removeFromParent();
         }
