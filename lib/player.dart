@@ -3,6 +3,7 @@ import 'package:flame/sprite.dart';
 import 'package:flame_audio/flame_audio.dart';
 import 'package:flame/collisions.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // <-- NOVO IMPORT PARA O TREMOR (HapticFeedback)
 import 'my_game.dart';
 import 'boss.dart';
 import 'settings_overlay.dart';
@@ -83,6 +84,11 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
 
   double paralyzeTimer = 0.0;
   bool get isParalyzed => paralyzeTimer > 0;
+
+  // NOVO: SISTEMA DE INVULNERABILIDADE (I-FRAMES)
+  double damageInvulnerabilityTimer = 0.0;
+  final double invulnerabilityDuration =
+      1.0; // 1 segundo de invulnerabilidade ao tomar dano
 
   final String arquivoPasso = 'andar.mp3';
   final String arquivoPulo = 'som_pulo_chao.mp3';
@@ -377,22 +383,38 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
   void stopBlocking() => isBlocking = false;
 
   void receiveAttack(double bossDamage) {
-    if (isInvincibleCheat || gameRef.bossDamageDisabled || isInvincible) return;
+    // CORREÇÃO: Ignora o dano se o cronômetro de invulnerabilidade estiver ativo (i-frames)
+    if (isInvincibleCheat ||
+        gameRef.bossDamageDisabled ||
+        isInvincible ||
+        damageInvulnerabilityTimer > 0)
+      return;
 
     _cancelActions();
 
     if (isBlocking) {
       if (blockTimer <= parryWindow) {
+        // PARRY PERFEITO!
         isParrySuccessAnim = true;
         parrySuccessTicker?.reset();
         return;
       } else {
+        // FALHOU O TEMPO (Toma só metade do dano)
         health -= (bossDamage * 0.5);
         isParryFailAnim = true;
         parryFailTicker?.reset();
+
+        HapticFeedback.vibrate(); // <-- VIBRA O CELULAR
+        damageInvulnerabilityTimer =
+            invulnerabilityDuration; // <-- INICIA OS I-FRAMES
       }
     } else {
+      // DANO DIRETO
       health -= bossDamage;
+
+      HapticFeedback.vibrate(); // <-- VIBRA O CELULAR
+      damageInvulnerabilityTimer =
+          invulnerabilityDuration; // <-- INICIA OS I-FRAMES
     }
 
     hitCount = 0;
@@ -429,6 +451,11 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
   void update(double dt) {
     super.update(dt);
     if (gameRef.isEditingHUD) return;
+
+    // NOVO: Faz o cronômetro do i-frame diminuir
+    if (damageInvulnerabilityTimer > 0) {
+      damageInvulnerabilityTimer -= dt;
+    }
 
     if (isParalyzed) {
       paralyzeTimer -= dt;
@@ -517,10 +544,8 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
           activeTicker.currentIndex >= 2 &&
           !hasDealtDamageThisStep) {
         hasDealtDamageThisStep = true;
+        bool acertouAlgo = false;
 
-        bool acertouAlgo = false; // Flag para desenhar o rastro da espada
-
-        // CORREÇÃO: O Player agora confere se a vida do boss é > 0. Se a vida for 0 (morte), não bate/comba mais.
         if (boss != null &&
             boss!.currentHealth > 0 &&
             position.distanceTo(boss!.position) < 120) {
@@ -533,13 +558,10 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
           acertouAlgo = true;
         }
 
-        // NOVO: A ESPADA CONFERE SE TEM ALGUM BOTÃO DE VITÓRIA PERTO PARA ACERTÁ-LO!
         final botoes = gameRef.world.children.query<VictoryButton>();
         for (final botao in botoes) {
           if (position.distanceTo(botao.position) < 120) {
-            botao.receiveDamage(
-              1.0,
-            ); // O botão "sofre o dano" e chama a função dele
+            botao.receiveDamage(1.0);
             acertouAlgo = true;
           }
         }
@@ -557,7 +579,7 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
               isFacingRight: isFacingRight,
               frameAmount: effectAmount,
               effectScale: scaleEfeito,
-            )..priority = 100, // Cortes da espada sempre na frente!
+            )..priority = 100,
           );
         }
       }
@@ -628,31 +650,93 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
       canvas.scale(-1, 1);
     }
 
+    // NOVO: LÓGICA DE PISCAR VISUAL (OVERRIDE PAINT)
+    Paint? piscaDano;
+    if (damageInvulnerabilityTimer > 0) {
+      // Fica alterando 15 vezes por segundo
+      if ((damageInvulnerabilityTimer * 15).floor() % 2 == 0) {
+        // Desenha a imagem vermelha
+        piscaDano = Paint()
+          ..colorFilter = ColorFilter.mode(
+            Colors.red.withOpacity(0.7),
+            BlendMode.srcATop,
+          );
+      } else {
+        // Desenha a imagem meio "fantasma" (transparente) pra dar o efeito intocável
+        piscaDano = Paint()..color = Colors.white.withOpacity(0.5);
+      }
+    }
+
+    // APLICANDO O FILTRO EM TODAS AS ANIMAÇÕES ABAIXO!
     if (isParalyzed && idleTicker != null) {
-      idleTicker!.getSprite().render(canvas, size: size);
+      idleTicker!.getSprite().render(
+        canvas,
+        size: size,
+        overridePaint: piscaDano,
+      );
     } else if (isParrySuccessAnim && parrySuccessTicker != null) {
-      parrySuccessTicker!.getSprite().render(canvas, size: size);
+      parrySuccessTicker!.getSprite().render(
+        canvas,
+        size: size,
+        overridePaint: piscaDano,
+      );
     } else if (isParryFailAnim && parryFailTicker != null) {
-      parryFailTicker!.getSprite().render(canvas, size: size);
+      parryFailTicker!.getSprite().render(
+        canvas,
+        size: size,
+        overridePaint: piscaDano,
+      );
     } else if (isAttacking) {
       if (currentAttackStep == 1 && attack1Ticker != null)
-        attack1Ticker!.getSprite().render(canvas, size: size);
+        attack1Ticker!.getSprite().render(
+          canvas,
+          size: size,
+          overridePaint: piscaDano,
+        );
       else if (currentAttackStep == 2 && attack2Ticker != null)
-        attack2Ticker!.getSprite().render(canvas, size: size);
+        attack2Ticker!.getSprite().render(
+          canvas,
+          size: size,
+          overridePaint: piscaDano,
+        );
       else if (currentAttackStep == 3 && attack3Ticker != null)
-        attack3Ticker!.getSprite().render(canvas, size: size);
+        attack3Ticker!.getSprite().render(
+          canvas,
+          size: size,
+          overridePaint: piscaDano,
+        );
     } else if (isDashing) {
       if (dashTimer < tempoDoImpulso && dashImpulseTicker != null)
-        dashImpulseTicker!.getSprite().render(canvas, size: size);
+        dashImpulseTicker!.getSprite().render(
+          canvas,
+          size: size,
+          overridePaint: piscaDano,
+        );
       else if (dashRunTicker != null)
-        dashRunTicker!.getSprite().render(canvas, size: size);
+        dashRunTicker!.getSprite().render(
+          canvas,
+          size: size,
+          overridePaint: piscaDano,
+        );
     } else if (isJumping && jumpTicker != null) {
-      jumpTicker!.getSprite().render(canvas, size: size);
+      jumpTicker!.getSprite().render(
+        canvas,
+        size: size,
+        overridePaint: piscaDano,
+      );
     } else {
       if (isWalking && walkTicker != null)
-        walkTicker!.getSprite().render(canvas, size: size);
+        walkTicker!.getSprite().render(
+          canvas,
+          size: size,
+          overridePaint: piscaDano,
+        );
       else if (idleTicker != null)
-        idleTicker!.getSprite().render(canvas, size: size);
+        idleTicker!.getSprite().render(
+          canvas,
+          size: size,
+          overridePaint: piscaDano,
+        );
       else
         canvas.drawRect(size.toRect(), Paint()..color = Colors.red);
     }
