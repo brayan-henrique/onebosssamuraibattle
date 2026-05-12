@@ -11,7 +11,7 @@ import 'dart:math';
 import 'dart:ui';
 import 'player.dart';
 import 'my_game.dart';
-import 'settings_overlay.dart'; // NECESSÁRIO PARA LER O VOLUME DA MÚSICA
+import 'settings_overlay.dart';
 
 enum BossPhase { phase1, phase2, phase3 }
 
@@ -28,6 +28,10 @@ enum BossState {
   falling,
   kunaiAttack,
 
+  spikeJumpUp,
+  spikeFall,
+  spikeWave,
+
   jumpingToCenter,
   dying,
   exploding,
@@ -37,7 +41,7 @@ enum BossState {
 enum SpecialAttack { aerialDrop, kunaiRain }
 
 // ==========================================
-// TELA DE VITÓRIA (PRIORIDADE 1000)
+// TELA DE VITÓRIA
 // ==========================================
 
 class VictoryLetter extends TextComponent with HasGameRef<MyPixelGame> {
@@ -208,6 +212,72 @@ class BossExplosion extends SpriteAnimationComponent
   }
 }
 
+class Spike extends PositionComponent with HasGameRef<MyPixelGame> {
+  final Player player;
+  final double targetScale;
+  bool hasHit = false;
+  Sprite? spikeSprite;
+
+  Spike({
+    required this.player,
+    required Vector2 position,
+    required this.targetScale,
+  }) : super(
+         position: position,
+         size: Vector2(30, 60),
+         anchor: Anchor.bottomCenter,
+       );
+
+  @override
+  Future<void> onLoad() async {
+    try {
+      spikeSprite = await gameRef.loadSprite('estaca.png');
+    } catch (e) {}
+
+    add(RectangleHitbox()..paint.color = Colors.transparent);
+    scale = Vector2.all(targetScale);
+
+    position.y += 60 * targetScale;
+
+    add(
+      MoveEffect.by(
+        Vector2(0, -60 * targetScale),
+        EffectController(
+          duration: 0.1,
+          alternate: true,
+          reverseDuration: 0.15,
+          atMaxDuration: 0.1,
+        ),
+      ),
+    );
+  }
+
+  @override
+  void update(double dt) {
+    super.update(dt);
+    if (gameRef.isEditingHUD) return;
+
+    if (!hasHit && position.distanceTo(player.position) < 30 * targetScale) {
+      player.receiveAttack(1.5);
+      hasHit = true;
+    }
+
+    if (children.whereType<MoveEffect>().isEmpty) {
+      removeFromParent();
+    }
+  }
+
+  @override
+  void render(Canvas canvas) {
+    super.render(canvas);
+    if (spikeSprite != null) {
+      spikeSprite!.render(canvas, size: size);
+    } else {
+      canvas.drawRect(size.toRect(), Paint()..color = Colors.brown);
+    }
+  }
+}
+
 class Kunai extends PositionComponent with HasGameRef<MyPixelGame> {
   final Player player;
   final double direction;
@@ -348,6 +418,9 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
   double hurtTimer = 0.0;
   double jumpStartX = 0.0;
 
+  double distancedTimer = 0.0;
+  int spikesSpawned = 0;
+
   Sprite? spriteIdle;
   Sprite? spriteAtacando;
   SpriteAnimationTicker? parryTicker;
@@ -431,7 +504,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
     } catch (e) {}
   }
 
-  // A NOVA FUNÇÃO QUE O MY_GAME VAI CHAMAR PARA RESSUSCITAR O BOSS
   void resetBoss() {
     maxHealth = 500.0;
     currentHealth = 500.0;
@@ -443,12 +515,13 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
     victoryScreenSpawned = false;
     hurtTimer = 0.0;
 
-    // Garante que a hitbox de dar porrada no boss existe de novo
+    distancedTimer = 0.0;
+    spikesSpawned = 0;
+
     if (!bossHitbox.isMounted) {
       add(bossHitbox);
     }
 
-    // Limpa todos os efeitos de "desaparecer" (fade out) da magia
     armRight.removeAll(armRight.children.whereType<OpacityEffect>());
     armRight.paint.color = armRight.paint.color.withOpacity(1.0);
 
@@ -505,8 +578,12 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
         spriteIdle!.render(canvas, size: size);
       else
         canvas.drawRect(size.toRect(), Paint()..color = Colors.green);
-    } else if (currentState == BossState.hovering) {
-      // Invisível
+    } else if (currentState == BossState.hovering ||
+        currentState == BossState.spikeJumpUp) {
+      if (spriteIdle != null)
+        spriteIdle!.render(canvas, size: size);
+      else
+        canvas.drawRect(size.toRect(), Paint()..color = Colors.grey);
     } else {
       if (spriteIdle != null)
         spriteIdle!.render(canvas, size: size);
@@ -557,17 +634,111 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
         double angleDiff = _normalizeAngle(targetAngle - armRight.angle);
         armRight.angle += angleDiff * combatRotationSpeed * dt;
         armLeft.angle = armRight.angle;
+
         if (player.position.x > position.x)
           position.x += currentSpeed * dt;
         else
           position.x -= currentSpeed * dt;
-        if (position.distanceTo(player.position) <= 120.0) {
+
+        double distancia = position.distanceTo(player.position);
+
+        if (distancia <= 120.0) {
+          distancedTimer = 0.0;
           currentState = BossState.windup;
           stateTimer = 0.0;
           attackTargetAngle = targetAngle;
           attackDirection = (player.position.x > position.x) ? 1.0 : -1.0;
+        } else {
+          distancedTimer += dt;
+
+          if (distancedTimer >= 1.0) {
+            currentState = BossState.spikeJumpUp;
+            stateTimer = 0.0;
+            distancedTimer = 0.0;
+          }
         }
         break;
+
+      case BossState.spikeJumpUp:
+        armRight.angle = lerpDouble(armRight.angle, pi / 2, 10.0 * dt)!;
+        armLeft.angle = armRight.angle;
+        position.y -= 600 * dt;
+
+        if (stateTimer >= 0.25) {
+          currentState = BossState.spikeFall;
+          stateTimer = 0.0;
+        }
+        break;
+
+      case BossState.spikeFall:
+        position.y += 1000 * dt;
+
+        if (position.y >= groundLevelY) {
+          position.y = groundLevelY;
+          currentState = BossState.spikeWave;
+          stateTimer = 0.0;
+          spikesSpawned = 0;
+
+          try {
+            FlameAudio.play('impacto_boss.mp3', volume: 0.4);
+          } catch (e) {}
+          HapticFeedback.lightImpact();
+          gameRef.camera.viewfinder.add(
+            MoveEffect.by(
+              Vector2(0, 5),
+              EffectController(
+                duration: 0.1,
+                reverseDuration: 0.1,
+                repeatCount: 1,
+              ),
+            ),
+          );
+        }
+        break;
+
+      case BossState.spikeWave:
+        armRight.angle = pi / 2;
+        armLeft.angle = pi / 2;
+
+        // Intervalo mais rápido para as 16 estacas se propagarem bem fluidas
+        if (stateTimer >= 0.05) {
+          if (spikesSpawned < 15) {
+            // Aumentado para 16 estacas
+            spikesSpawned++;
+            stateTimer = 0.0;
+
+            // Distância reduzida para 25. (16 * 25 = 400px exatos da borda)
+            double dist = spikesSpawned * 30.0;
+
+            // Ajuste na escala: Começa menor (0.43) e vai até ~2.38
+            double spikeScale = 0.3 + (spikesSpawned * 0.13);
+
+            Vector2 spikePosRight = Vector2(position.x + dist, groundLevelY);
+            Spike estacaDir = Spike(
+              player: player,
+              position: spikePosRight,
+              targetScale: spikeScale,
+            );
+            estacaDir.priority = 15;
+            gameRef.world.add(estacaDir);
+
+            Vector2 spikePosLeft = Vector2(position.x - dist, groundLevelY);
+            Spike estacaEsq = Spike(
+              player: player,
+              position: spikePosLeft,
+              targetScale: spikeScale,
+            );
+            estacaEsq.priority = 15;
+            gameRef.world.add(estacaEsq);
+          } else {
+            if (stateTimer >= 0.5) {
+              currentState = BossState.chasing;
+              stateTimer = 0.0;
+            }
+          }
+        }
+        break;
+
       case BossState.windup:
         double windupTarget = attackTargetAngle - (1.5 * attackDirection);
         double diff = _normalizeAngle(windupTarget - armRight.angle);
@@ -883,7 +1054,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
 
     double tempoAteTerminarLetras = (text.length * 0.15) + 0.5;
 
-    // BOTÃO RESTART CONECTADO AO MY_GAME
     gameRef.world.add(
       VictoryButton(
         label: "RESTART",
@@ -891,7 +1061,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
         targetY: groundLevelY - 80,
         delay: tempoAteTerminarLetras,
         onHit: () {
-          // Delay de 0.3s só pra você conseguir ver o botão afundar e ficar verde antes de resetar a tela
           Future.delayed(const Duration(milliseconds: 300), () {
             gameRef.resetGame();
             FlameAudio.bgm.play('musica_padrao.mp3', volume: AudioManager.bgm);
@@ -900,7 +1069,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
       ),
     );
 
-    // BOTÃO MENU CONECTADO AO MENU_SCREEN
     gameRef.world.add(
       VictoryButton(
         label: "MENU",
@@ -908,11 +1076,10 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
         targetY: groundLevelY - 10,
         delay: tempoAteTerminarLetras + 0.3,
         onHit: () {
-          // Delay de 0.3s pelo mesmo motivo
           Future.delayed(const Duration(milliseconds: 300), () {
-            gameRef.resetGame(); // Limpa tudo antes de sair
-            FlameAudio.bgm.stop(); // Para a música
-            gameRef.onBackToMenu?.call(); // Aciona a volta para a tela inicial
+            gameRef.resetGame();
+            FlameAudio.bgm.stop();
+            gameRef.onBackToMenu?.call();
           });
         },
       ),
@@ -941,7 +1108,10 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
     if (currentState == BossState.transitioning ||
         currentState == BossState.jumpingUp ||
         currentState == BossState.hovering ||
-        currentState == BossState.falling)
+        currentState == BossState.falling ||
+        currentState == BossState.spikeJumpUp ||
+        currentState == BossState.spikeFall ||
+        currentState == BossState.spikeWave)
       return;
 
     hurtTimer = 0.4;

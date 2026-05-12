@@ -18,9 +18,14 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
-
+  integration_test:
+    sdk: flutter
 
   flutter_lints: ^6.0.0
+  test: ^1.30.0
+  mockito: ^5.6.4
+  build_runner: ^2.15.0
+  flame_test: ^2.2.4
 
 
 flutter:
@@ -74,6 +79,7 @@ flutter:
     - assets/images/explosão_boss.png
     - assets/images/corpo_explodindo.png
     - assets/images/boss_morrendo.png
+    - assets/images/estaca.png
     
     #==================Audio==================
     - assets/audio/musica_padrao.mp3
