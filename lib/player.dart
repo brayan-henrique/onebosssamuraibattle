@@ -2,8 +2,9 @@ import 'package:flame/components.dart';
 import 'package:flame/sprite.dart';
 import 'package:flame_audio/flame_audio.dart';
 import 'package:flame/collisions.dart';
+import 'package:flame/effects.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // <-- NOVO IMPORT PARA O TREMOR (HapticFeedback)
+import 'package:flutter/services.dart';
 import 'my_game.dart';
 import 'boss.dart';
 import 'settings_overlay.dart';
@@ -85,10 +86,8 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
   double paralyzeTimer = 0.0;
   bool get isParalyzed => paralyzeTimer > 0;
 
-  // NOVO: SISTEMA DE INVULNERABILIDADE (I-FRAMES)
   double damageInvulnerabilityTimer = 0.0;
-  final double invulnerabilityDuration =
-      1.0; // 1 segundo de invulnerabilidade ao tomar dano
+  final double invulnerabilityDuration = 1.0;
 
   final String arquivoPasso = 'andar.mp3';
   final String arquivoPulo = 'som_pulo_chao.mp3';
@@ -130,13 +129,11 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
   bool isFacingRight = true;
   bool isWalking = false;
 
-  // SISTEMA DE ATAQUE
   bool isAttacking = false;
   int currentAttackStep = 0;
   int comboTarget = 0;
   bool hasDealtDamageThisStep = false;
 
-  // SISTEMA DE DEFESA (PARRY)
   bool isParrySuccessAnim = false;
   bool isParryFailAnim = false;
 
@@ -152,6 +149,10 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
 
   SpriteAnimationTicker? parrySuccessTicker;
   SpriteAnimationTicker? parryFailTicker;
+
+  // NOVOS TICKERS PARA O ATORDOAMENTO
+  SpriteAnimationTicker? stunTicker;
+  SpriteAnimationTicker? starStunTicker;
 
   Player({required this.joystick})
     : super(size: Vector2.all(96), anchor: Anchor.center);
@@ -175,6 +176,7 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
         ),
       );
       walkTicker = walkAnim.createTicker();
+
       final idleAnim = await gameRef.loadSpriteAnimation(
         'player_idle.png',
         SpriteAnimationData.sequenced(
@@ -184,6 +186,32 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
         ),
       );
       idleTicker = idleAnim.createTicker();
+
+      // ==========================================
+      // ANIMAÇÕES DE STUN E ESTRELAS
+      // (ALERTA: Ajuste o 'amount' se os seus spritesheets tiverem quadros diferentes de 4!)
+      // ==========================================
+      final stunAnim = await gameRef.loadSpriteAnimation(
+        'player_stunado.png',
+        SpriteAnimationData.sequenced(
+          amount: 12,
+          stepTime: 0.15,
+          textureSize: Vector2.all(32),
+        ),
+      );
+      stunTicker = stunAnim.createTicker();
+
+      final starAnim = await gameRef.loadSpriteAnimation(
+        'estrela_stun.png',
+        SpriteAnimationData.sequenced(
+          amount: 5,
+          stepTime: 0.1,
+          textureSize: Vector2.all(96),
+        ),
+      );
+      starStunTicker = starAnim.createTicker();
+      // ==========================================
+
       final jumpAnim = await gameRef.loadSpriteAnimation(
         'pulo_fixo_1.png',
         SpriteAnimationData.sequenced(
@@ -264,7 +292,9 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
         ),
       );
       parryFailTicker = parryFalhaAnim.createTicker();
-    } catch (e) {}
+    } catch (e) {
+      debugPrint("Erro carregando animações do Player: $e");
+    }
 
     try {
       poolPulo = await FlameAudio.createPool(
@@ -300,6 +330,10 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
     velocity = Vector2.zero();
     isWalking = false;
     _cancelActions();
+
+    // Reseta as animações de stun pra começarem bonitinhas do frame 0
+    stunTicker?.reset();
+    starStunTicker?.reset();
   }
 
   void jump() {
@@ -382,8 +416,16 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
 
   void stopBlocking() => isBlocking = false;
 
+  void _ativarTelaPulsando() {
+    gameRef.camera.viewfinder.add(
+      ScaleEffect.by(
+        Vector2.all(1.03),
+        EffectController(duration: 0.1, alternate: true, repeatCount: 5),
+      ),
+    );
+  }
+
   void receiveAttack(double bossDamage) {
-    // CORREÇÃO: Ignora o dano se o cronômetro de invulnerabilidade estiver ativo (i-frames)
     if (isInvincibleCheat ||
         gameRef.bossDamageDisabled ||
         isInvincible ||
@@ -394,27 +436,24 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
 
     if (isBlocking) {
       if (blockTimer <= parryWindow) {
-        // PARRY PERFEITO!
         isParrySuccessAnim = true;
         parrySuccessTicker?.reset();
         return;
       } else {
-        // FALHOU O TEMPO (Toma só metade do dano)
         health -= (bossDamage * 0.5);
         isParryFailAnim = true;
         parryFailTicker?.reset();
 
-        HapticFeedback.vibrate(); // <-- VIBRA O CELULAR
-        damageInvulnerabilityTimer =
-            invulnerabilityDuration; // <-- INICIA OS I-FRAMES
+        HapticFeedback.heavyImpact();
+        damageInvulnerabilityTimer = invulnerabilityDuration;
+        _ativarTelaPulsando();
       }
     } else {
-      // DANO DIRETO
       health -= bossDamage;
 
-      HapticFeedback.vibrate(); // <-- VIBRA O CELULAR
-      damageInvulnerabilityTimer =
-          invulnerabilityDuration; // <-- INICIA OS I-FRAMES
+      HapticFeedback.heavyImpact();
+      damageInvulnerabilityTimer = invulnerabilityDuration;
+      _ativarTelaPulsando();
     }
 
     hitCount = 0;
@@ -452,13 +491,16 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
     super.update(dt);
     if (gameRef.isEditingHUD) return;
 
-    // NOVO: Faz o cronômetro do i-frame diminuir
     if (damageInvulnerabilityTimer > 0) {
       damageInvulnerabilityTimer -= dt;
     }
 
     if (isParalyzed) {
       paralyzeTimer -= dt;
+      // Atualiza os tickers de stun!
+      stunTicker?.update(dt);
+      starStunTicker?.update(dt);
+
       if (position.y < groundLevelY)
         velocity.y += gravity * dt;
       else {
@@ -650,31 +692,51 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
       canvas.scale(-1, 1);
     }
 
-    // NOVO: LÓGICA DE PISCAR VISUAL (OVERRIDE PAINT)
     Paint? piscaDano;
     if (damageInvulnerabilityTimer > 0) {
-      // Fica alterando 15 vezes por segundo
       if ((damageInvulnerabilityTimer * 15).floor() % 2 == 0) {
-        // Desenha a imagem vermelha
         piscaDano = Paint()
           ..colorFilter = ColorFilter.mode(
             Colors.red.withOpacity(0.7),
             BlendMode.srcATop,
           );
       } else {
-        // Desenha a imagem meio "fantasma" (transparente) pra dar o efeito intocável
         piscaDano = Paint()..color = Colors.white.withOpacity(0.5);
       }
     }
 
-    // APLICANDO O FILTRO EM TODAS AS ANIMAÇÕES ABAIXO!
-    if (isParalyzed && idleTicker != null) {
-      idleTicker!.getSprite().render(
-        canvas,
-        size: size,
-        overridePaint: piscaDano,
-      );
-    } else if (isParrySuccessAnim && parrySuccessTicker != null) {
+    // DESENHANDO O CORPO ATORDOADO
+    if (isParalyzed) {
+      if (stunTicker != null) {
+        stunTicker!.getSprite().render(
+          canvas,
+          size: size,
+          overridePaint: piscaDano,
+        );
+      } else if (idleTicker != null) {
+        idleTicker!.getSprite().render(
+          canvas,
+          size: size,
+          overridePaint: piscaDano,
+        );
+      }
+
+      // DESENHANDO AS ESTRELAS (Flutuando acima da cabeça)
+      if (starStunTicker != null) {
+        final starSize = Vector2.all(48); // Fica com metade do tamanho original
+        final starPos = Vector2(
+          (size.x / 2) - (starSize.x / 2),
+          -15,
+        ); // Bem no topo da cabeça
+        starStunTicker!.getSprite().render(
+          canvas,
+          position: starPos,
+          size: starSize,
+        );
+      }
+    }
+    // DESENHANDO O RESTO NORMALMENTE
+    else if (isParrySuccessAnim && parrySuccessTicker != null) {
       parrySuccessTicker!.getSprite().render(
         canvas,
         size: size,

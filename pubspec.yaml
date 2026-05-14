@@ -80,6 +80,8 @@ flutter:
     - assets/images/corpo_explodindo.png
     - assets/images/boss_morrendo.png
     - assets/images/estaca.png
+    - assets/images/estrela_stun.png
+    - assets/images/player_stunado.png
     
     #==================Audio==================
     - assets/audio/musica_padrao.mp3
