@@ -106,9 +106,15 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
   int jumpCount = 0;
   bool isInvincible = false;
   double gravity = 800;
-  bool isBlocking = false;
-  double blockTimer = 0.0;
-  final double parryWindow = 0.2;
+
+  // NOVO SISTEMA DE PARRY
+  bool isParrying = false;
+  double parryTimer = 0.0;
+
+  // 🔥 BALANCEAMENTO: Janela de Parry muito mais curta (De 0.2s para 0.08s)
+  // Altere este número se quiser deixar mais fácil ou mais difícil!
+  final double parryWindow = 0.08;
+
   double health = 5.0;
 
   double specialMeter = 0.0;
@@ -120,10 +126,11 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
 
   bool isDashing = false;
   double dashTimer = 0.0;
+
   double dashCooldownTimer = 0.0;
   final double tempoTotalDash = 0.3;
   final double tempoDoImpulso = 0.08;
-  final double tempoDeRecargaDash = 1.275;
+  final double tempoDeRecargaDash = 1.175;
 
   bool isJumping = false;
   bool isFacingRight = true;
@@ -136,6 +143,7 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
 
   bool isParrySuccessAnim = false;
   bool isParryFailAnim = false;
+  bool hasSuccessfullyParried = false;
 
   SpriteAnimationTicker? walkTicker;
   SpriteAnimationTicker? idleTicker;
@@ -150,7 +158,6 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
   SpriteAnimationTicker? parrySuccessTicker;
   SpriteAnimationTicker? parryFailTicker;
 
-  // NOVOS TICKERS PARA O ATORDOAMENTO
   SpriteAnimationTicker? stunTicker;
   SpriteAnimationTicker? starStunTicker;
 
@@ -187,10 +194,6 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
       );
       idleTicker = idleAnim.createTicker();
 
-      // ==========================================
-      // ANIMAÇÕES DE STUN E ESTRELAS
-      // (ALERTA: Ajuste o 'amount' se os seus spritesheets tiverem quadros diferentes de 4!)
-      // ==========================================
       final stunAnim = await gameRef.loadSpriteAnimation(
         'player_stunado.png',
         SpriteAnimationData.sequenced(
@@ -210,7 +213,6 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
         ),
       );
       starStunTicker = starAnim.createTicker();
-      // ==========================================
 
       final jumpAnim = await gameRef.loadSpriteAnimation(
         'pulo_fixo_1.png',
@@ -221,6 +223,7 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
         ),
       );
       jumpTicker = jumpAnim.createTicker();
+
       final impulseAnim = await gameRef.loadSpriteAnimation(
         'player_dash(etap1).png',
         SpriteAnimationData.sequenced(
@@ -230,6 +233,7 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
         ),
       );
       dashImpulseTicker = impulseAnim.createTicker();
+
       final runAnim = await gameRef.loadSpriteAnimation(
         'player_dash(etap2).png',
         SpriteAnimationData.sequenced(
@@ -250,6 +254,7 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
         ),
       );
       attack1Ticker = atk1Anim.createTicker();
+
       final atk2Anim = await gameRef.loadSpriteAnimation(
         'player_ataque-2.png',
         SpriteAnimationData.sequenced(
@@ -260,6 +265,7 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
         ),
       );
       attack2Ticker = atk2Anim.createTicker();
+
       final atk3Anim = await gameRef.loadSpriteAnimation(
         'player_ataque-3.png',
         SpriteAnimationData.sequenced(
@@ -320,8 +326,8 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
       comboTarget = 0;
       hasDealtDamageThisStep = false;
     }
+    isParrying = false;
     isParrySuccessAnim = false;
-    isParryFailAnim = false;
   }
 
   void applyParalysis(double duration) {
@@ -331,13 +337,12 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
     isWalking = false;
     _cancelActions();
 
-    // Reseta as animações de stun pra começarem bonitinhas do frame 0
     stunTicker?.reset();
     starStunTicker?.reset();
   }
 
   void jump() {
-    if (isDashing || isBlocking || isParalyzed) return;
+    if (isDashing || isParrying || isParalyzed || isParryFailAnim) return;
     _cancelActions();
 
     if (position.y >= groundLevelY) {
@@ -359,7 +364,11 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
   }
 
   void dash() {
-    if (isInvincible || isBlocking || dashCooldownTimer > 0 || isParalyzed)
+    if (isInvincible ||
+        isParrying ||
+        dashCooldownTimer > 0 ||
+        isParalyzed ||
+        isParryFailAnim)
       return;
     _cancelActions();
 
@@ -372,7 +381,7 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
   }
 
   void basicAttack() {
-    if (isParalyzed || isDashing || isBlocking) return;
+    if (isParalyzed || isDashing || isParrying || isParryFailAnim) return;
     if (comboTarget < 3) comboTarget++;
     if (!isAttacking) _startNextAttack();
   }
@@ -394,7 +403,7 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
   }
 
   void specialAttack() {
-    if (isParalyzed) return;
+    if (isParalyzed || isParryFailAnim) return;
     _cancelActions();
 
     if (specialMeter >= 100.0 &&
@@ -405,16 +414,15 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
     }
   }
 
-  void startBlocking() {
-    if (isDashing || isParalyzed) return;
+  void tentarParry() {
+    if (isDashing || isParalyzed || isParryFailAnim || isParrying) return;
     _cancelActions();
 
-    isBlocking = true;
-    isJumping = false;
-    blockTimer = 0.0;
+    isParrying = true;
+    parryTimer = 0.0; // Inicia a janela de tempo!
+    isParrySuccessAnim = true;
+    parrySuccessTicker?.reset();
   }
-
-  void stopBlocking() => isBlocking = false;
 
   void _ativarTelaPulsando() {
     gameRef.camera.viewfinder.add(
@@ -432,14 +440,19 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
         damageInvulnerabilityTimer > 0)
       return;
 
-    _cancelActions();
+    if (isParrying) {
+      if (parryTimer <= parryWindow) {
+        // PARRY PERFEITO!
+        _cancelActions();
 
-    if (isBlocking) {
-      if (blockTimer <= parryWindow) {
+        isParrying = true;
         isParrySuccessAnim = true;
         parrySuccessTicker?.reset();
         return;
       } else {
+        // PARRY FALHOU (Apertou cedo demais!)
+        _cancelActions();
+
         health -= (bossDamage * 0.5);
         isParryFailAnim = true;
         parryFailTicker?.reset();
@@ -449,6 +462,8 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
         _ativarTelaPulsando();
       }
     } else {
+      // DANO DIRETO SEM DEFESA
+      _cancelActions();
       health -= bossDamage;
 
       HapticFeedback.heavyImpact();
@@ -491,16 +506,12 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
     super.update(dt);
     if (gameRef.isEditingHUD) return;
 
-    if (damageInvulnerabilityTimer > 0) {
-      damageInvulnerabilityTimer -= dt;
-    }
+    if (damageInvulnerabilityTimer > 0) damageInvulnerabilityTimer -= dt;
 
     if (isParalyzed) {
       paralyzeTimer -= dt;
-      // Atualiza os tickers de stun!
       stunTicker?.update(dt);
       starStunTicker?.update(dt);
-
       if (position.y < groundLevelY)
         velocity.y += gravity * dt;
       else {
@@ -512,13 +523,28 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
       return;
     }
 
-    if (isParrySuccessAnim) {
-      parrySuccessTicker?.update(dt);
-      if (parrySuccessTicker?.done() == true) isParrySuccessAnim = false;
-    }
     if (isParryFailAnim) {
       parryFailTicker?.update(dt);
       if (parryFailTicker?.done() == true) isParryFailAnim = false;
+
+      velocity.x = 0;
+      if (position.y < groundLevelY)
+        velocity.y += gravity * dt;
+      else {
+        velocity.y = 0;
+        position.y = groundLevelY;
+      }
+      position += velocity * dt;
+      return;
+    }
+
+    if (isParrying) {
+      parryTimer += dt;
+      parrySuccessTicker?.update(dt);
+      if (parrySuccessTicker?.done() == true) {
+        isParrying = false;
+        isParrySuccessAnim = false;
+      }
     }
 
     timeSinceLastHit += dt;
@@ -591,7 +617,7 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
         if (boss != null &&
             boss!.currentHealth > 0 &&
             position.distanceTo(boss!.position) < 120) {
-          boss!.receiveDamage(10.0 * damageMultiplier);
+          boss!.receiveDamage(40.0 * damageMultiplier);
           hitCount++;
           specialMeter += (1.0 * comboMultiplier);
           if (specialMeter > 100.0) specialMeter = 100.0;
@@ -613,7 +639,6 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
               ? deslocamentoManual.x
               : -deslocamentoManual.x;
           Vector2 effectPos = position + Vector2(finalX, deslocamentoManual.y);
-
           gameRef.world.add(
             SlashEffect(
               spriteName: effectName,
@@ -627,7 +652,7 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
       }
     }
 
-    if (!joystick.delta.isZero() && !isBlocking) {
+    if (!joystick.delta.isZero() && !isParrying && !isParryFailAnim) {
       velocity.x = joystick.relativeDelta.x * speed;
       isWalking = true;
       if (joystick.relativeDelta.x < 0)
@@ -655,7 +680,7 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
     position += velocity * dt;
     position.x = position.x.clamp(16.0, 784.0);
 
-    if (isWalking && position.y >= groundLevelY && !isDashing && !isBlocking) {
+    if (isWalking && position.y >= groundLevelY && !isDashing && !isParrying) {
       stepTimer += dt;
       if (stepTimer >= stepInterval) {
         try {
@@ -668,7 +693,6 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
     }
 
     if (dashCooldownTimer > 0) dashCooldownTimer -= dt;
-    if (isBlocking) blockTimer += dt;
     if (isDashing) {
       dashTimer += dt;
       dashImpulseTicker?.update(dt);
@@ -705,45 +729,30 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
       }
     }
 
-    // DESENHANDO O CORPO ATORDOADO
     if (isParalyzed) {
-      if (stunTicker != null) {
+      if (stunTicker != null)
         stunTicker!.getSprite().render(
           canvas,
           size: size,
           overridePaint: piscaDano,
         );
-      } else if (idleTicker != null) {
-        idleTicker!.getSprite().render(
-          canvas,
-          size: size,
-          overridePaint: piscaDano,
-        );
-      }
-
-      // DESENHANDO AS ESTRELAS (Flutuando acima da cabeça)
       if (starStunTicker != null) {
-        final starSize = Vector2.all(48); // Fica com metade do tamanho original
-        final starPos = Vector2(
-          (size.x / 2) - (starSize.x / 2),
-          -15,
-        ); // Bem no topo da cabeça
+        final starSize = Vector2.all(48);
+        final starPos = Vector2((size.x / 2) - (starSize.x / 2), -15);
         starStunTicker!.getSprite().render(
           canvas,
           position: starPos,
           size: starSize,
         );
       }
-    }
-    // DESENHANDO O RESTO NORMALMENTE
-    else if (isParrySuccessAnim && parrySuccessTicker != null) {
-      parrySuccessTicker!.getSprite().render(
+    } else if (isParryFailAnim && parryFailTicker != null) {
+      parryFailTicker!.getSprite().render(
         canvas,
         size: size,
         overridePaint: piscaDano,
       );
-    } else if (isParryFailAnim && parryFailTicker != null) {
-      parryFailTicker!.getSprite().render(
+    } else if (isParrySuccessAnim && parrySuccessTicker != null) {
+      parrySuccessTicker!.getSprite().render(
         canvas,
         size: size,
         overridePaint: piscaDano,

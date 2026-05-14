@@ -460,14 +460,15 @@ class MyPixelGame extends FlameGame with HasCollisionDetection {
       ),
     );
 
+    // MÁGICA AQUI: O botão não é mais segurado. É apenas um trigger (Aperto rápido).
     camera.viewport.add(
       await _criarBotaoRemapeavel(
         imagem: 'Escudo_icone-1.png',
         corFundo: Colors.blue,
         raio: 25,
         posicao: Vector2(685, 245),
-        onPressed: () => player.startBlocking(),
-        onReleased: () => player.stopBlocking(),
+        onPressed: () => player.tentarParry(),
+        // NOTA: O onReleased foi removido de propósito aqui!
         debugColor: Colors.blue,
       ),
     );
@@ -491,9 +492,7 @@ class MyPixelGame extends FlameGame with HasCollisionDetection {
     }
   }
 
-  // A MÁGICA ACONTECE AQUI! A função agora reseta o boss e varre os botões da tela.
   void resetGame() {
-    // 1. Reseta o Player
     player.health = 5.0;
     player.specialMeter = 0.0;
     player.comboMultiplier = 1;
@@ -504,15 +503,14 @@ class MyPixelGame extends FlameGame with HasCollisionDetection {
     player.position = Vector2(100, player.groundLevelY);
     player.velocity = Vector2.zero();
     player.isInvincible = false;
-    player.isBlocking = false;
+    player.isParrying = false; // Reset atualizado!
     player.isJumping = false;
     player.isDashing = false;
     player.dashCooldownTimer = 0.0;
+    player.isParryFailAnim = false; // Tira ele do stagger
 
-    // 2. Reseta o Boss completamente (usando a função nova do boss.dart)
     boss.resetBoss();
 
-    // 3. Limpa todas as Kunais, Botões, Letras e Explosões mortas da tela!
     world.children.whereType<Kunai>().forEach(
       (kunai) => kunai.removeFromParent(),
     );
@@ -589,7 +587,8 @@ class MyPixelGame extends FlameGame with HasCollisionDetection {
       position: posicao,
       size: Vector2.all(raio * 2),
       onPressed: onPressed,
-      onReleased: onReleased,
+      onReleased:
+          onReleased, // No botão do escudo, ele vai enviar "nulo" e ignorar
       debugColor: debugColor,
     );
   }

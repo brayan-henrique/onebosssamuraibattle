@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flame/game.dart'; // Necessário para achar o GameWidget
+import 'package:flame/game.dart';
 import 'package:onebosssamuraibattle/menu_screen.dart';
 import 'package:onebosssamuraibattle/settings_overlay.dart';
 import 'package:onebosssamuraibattle/my_game.dart';
