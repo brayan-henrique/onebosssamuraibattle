@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:flame/game.dart';
 import 'package:flame/components.dart';
 import 'package:flame/input.dart';
@@ -170,6 +171,8 @@ class PlayerHealthBar extends PositionComponent with HasGameRef<MyPixelGame> {
   final double posHitsY = 75.0;
   final double posComboY = 105.0;
 
+  double shakeTimer = 0.0; // Cronômetro pro tremilique da HUD
+
   final TextPaint hitCountPaint = TextPaint(
     style: const TextStyle(
       color: Colors.white,
@@ -224,11 +227,29 @@ class PlayerHealthBar extends PositionComponent with HasGameRef<MyPixelGame> {
   void update(double dt) {
     super.update(dt);
     gotaMetadeTicker?.update(dt);
+
+    // Se chegou nos 100%, liga o tremilique
+    if (player.specialMeter >= 100.0) {
+      shakeTimer += dt;
+    } else {
+      shakeTimer = 0.0;
+    }
   }
 
   @override
   void render(Canvas canvas) {
+    canvas.save(); // Salva a posição original da tela
+
+    // TREMOR EXTREMO DA HUD INTEIRA SE ESTIVER NOS 100%
+    if (player.specialMeter >= 100.0) {
+      double offsetX = (Random().nextDouble() - 0.5) * 5;
+      double offsetY = (Random().nextDouble() - 0.5) * 5;
+      canvas.translate(offsetX, offsetY);
+    }
+
     super.render(canvas);
+
+    // Desenha o Fundo
     if (fundoHud != null) {
       fundoHud!.render(canvas, position: Vector2.zero(), size: tamanhoFundo);
     } else {
@@ -237,6 +258,8 @@ class PlayerHealthBar extends PositionComponent with HasGameRef<MyPixelGame> {
         Paint()..color = Colors.black.withOpacity(0.5),
       );
     }
+
+    // Desenha as Gotas
     for (int i = 0; i < 5; i++) {
       double xAtual = posGotasX + (i * espacamentoGotas);
       Vector2 pos = Vector2(xAtual, posGotasY);
@@ -255,22 +278,66 @@ class PlayerHealthBar extends PositionComponent with HasGameRef<MyPixelGame> {
           gotaVazia!.render(canvas, position: pos, size: tamanhoGota);
       }
     }
+
+    // ==============================================
+    // A NOVA BARRA DUPLA DE ESPECIAL
+    // ==============================================
+    double gap = 4.0; // Espacinho preto no meio
+    double halfWidth = (larguraBarra - gap) / 2;
+
+    // Fundo da Barra 1
     canvas.drawRect(
-      Rect.fromLTWH(posBarraX, posBarraY, larguraBarra, alturaBarra),
+      Rect.fromLTWH(posBarraX, posBarraY, halfWidth, alturaBarra),
       Paint()..color = Colors.grey.withAlpha(150),
     );
-    if (player.specialMeter > 0) {
-      double fillRatio = player.specialMeter / 100.0;
-      canvas.drawRect(
-        Rect.fromLTWH(
-          posBarraX,
-          posBarraY,
-          larguraBarra * fillRatio,
-          alturaBarra,
-        ),
-        Paint()..color = Colors.blueAccent,
-      );
+    // Fundo da Barra 2
+    canvas.drawRect(
+      Rect.fromLTWH(
+        posBarraX + halfWidth + gap,
+        posBarraY,
+        halfWidth,
+        alturaBarra,
+      ),
+      Paint()..color = Colors.grey.withAlpha(150),
+    );
+
+    Paint specialPaint = Paint()..color = Colors.blueAccent;
+
+    // PISCA PISCA ROXO E VERMELHO QUANDO TÁ NO 100%
+    if (player.specialMeter >= 100.0) {
+      if ((shakeTimer * 10).floor() % 2 == 0) {
+        specialPaint.color = Colors.purpleAccent;
+      } else {
+        specialPaint.color = Colors.redAccent;
+      }
     }
+
+    if (player.specialMeter > 0) {
+      // Enchendo a Barra 1
+      double bar1Ratio = (player.specialMeter >= 50.0)
+          ? 1.0
+          : (player.specialMeter / 50.0);
+      canvas.drawRect(
+        Rect.fromLTWH(posBarraX, posBarraY, halfWidth * bar1Ratio, alturaBarra),
+        specialPaint,
+      );
+
+      // Enchendo a Barra 2
+      if (player.specialMeter > 50.0) {
+        double bar2Ratio = (player.specialMeter - 50.0) / 50.0;
+        canvas.drawRect(
+          Rect.fromLTWH(
+            posBarraX + halfWidth + gap,
+            posBarraY,
+            halfWidth * bar2Ratio,
+            alturaBarra,
+          ),
+          specialPaint,
+        );
+      }
+    }
+
+    // Textos de Hit e Combo
     if (player.hitCount >= 2)
       hitCountPaint.render(
         canvas,
@@ -283,6 +350,9 @@ class PlayerHealthBar extends PositionComponent with HasGameRef<MyPixelGame> {
         'Combo ${player.comboMultiplier}x',
         Vector2(posTextosX, posComboY),
       );
+
+    canvas
+        .restore(); // Devolve a tela ao normal pro resto do jogo não tremer junto
   }
 }
 
@@ -460,7 +530,6 @@ class MyPixelGame extends FlameGame with HasCollisionDetection {
       ),
     );
 
-    // MÁGICA AQUI: O botão não é mais segurado. É apenas um trigger (Aperto rápido).
     camera.viewport.add(
       await _criarBotaoRemapeavel(
         imagem: 'Escudo_icone-1.png',
@@ -468,11 +537,11 @@ class MyPixelGame extends FlameGame with HasCollisionDetection {
         raio: 25,
         posicao: Vector2(685, 245),
         onPressed: () => player.tentarParry(),
-        // NOTA: O onReleased foi removido de propósito aqui!
         debugColor: Colors.blue,
       ),
     );
 
+    // O BOTÃO DE ESPECIAL/CURA AGORA RECONHECE CLIQUE E SEGURAR
     camera.viewport.add(
       RemappableButton(
         content: CircleComponent(
@@ -481,7 +550,8 @@ class MyPixelGame extends FlameGame with HasCollisionDetection {
         ),
         position: Vector2(720, 190),
         size: Vector2.all(40),
-        onPressed: () => player.specialAttack(),
+        onPressed: () => player.startSpecial(),
+        onReleased: () => player.releaseSpecial(),
         debugColor: Colors.purple,
       ),
     );
@@ -503,11 +573,13 @@ class MyPixelGame extends FlameGame with HasCollisionDetection {
     player.position = Vector2(100, player.groundLevelY);
     player.velocity = Vector2.zero();
     player.isInvincible = false;
-    player.isParrying = false; // Reset atualizado!
+    player.isParrying = false;
     player.isJumping = false;
     player.isDashing = false;
     player.dashCooldownTimer = 0.0;
-    player.isParryFailAnim = false; // Tira ele do stagger
+    player.isParryFailAnim = false;
+    player.isHoldingSpecial = false; // Cancela curas interrompidas
+    player.specialHoldTimer = 0.0;
 
     boss.resetBoss();
 
@@ -587,8 +659,7 @@ class MyPixelGame extends FlameGame with HasCollisionDetection {
       position: posicao,
       size: Vector2.all(raio * 2),
       onPressed: onPressed,
-      onReleased:
-          onReleased, // No botão do escudo, ele vai enviar "nulo" e ignorar
+      onReleased: onReleased,
       debugColor: debugColor,
     );
   }

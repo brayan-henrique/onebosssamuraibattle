@@ -107,12 +107,8 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
   bool isInvincible = false;
   double gravity = 800;
 
-  // NOVO SISTEMA DE PARRY
   bool isParrying = false;
   double parryTimer = 0.0;
-
-  // 🔥 BALANCEAMENTO: Janela de Parry muito mais curta (De 0.2s para 0.08s)
-  // Altere este número se quiser deixar mais fácil ou mais difícil!
   final double parryWindow = 0.08;
 
   double health = 5.0;
@@ -123,6 +119,11 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
   double continuousHitTimer = 0.0;
   double timeSinceLastHit = 0.0;
   double decayTimer = 0.0;
+
+  // SISTEMA DE CURA AO SEGURAR O BOTÃO DE ESPECIAL
+  bool isHoldingSpecial = false;
+  double specialHoldTimer = 0.0;
+  final double specialHoldThreshold = 0.5; // Meio segundo para curar
 
   bool isDashing = false;
   double dashTimer = 0.0;
@@ -335,6 +336,7 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
     paralyzeTimer = duration;
     velocity = Vector2.zero();
     isWalking = false;
+    isHoldingSpecial = false;
     _cancelActions();
 
     stunTicker?.reset();
@@ -402,15 +404,32 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
     }
   }
 
-  void specialAttack() {
+  void startSpecial() {
     if (isParalyzed || isParryFailAnim) return;
-    _cancelActions();
+    isHoldingSpecial = true;
+    specialHoldTimer = 0.0;
+  }
 
-    if (specialMeter >= 100.0 &&
-        boss != null &&
-        position.distanceTo(boss!.position) < 200) {
-      boss!.receiveDamage(200.0 * damageMultiplier);
-      specialMeter = 0.0;
+  void releaseSpecial() {
+    if (!isHoldingSpecial) return;
+    isHoldingSpecial = false;
+
+    if (specialHoldTimer < specialHoldThreshold) {
+      if (specialMeter >= 100.0 &&
+          boss != null &&
+          position.distanceTo(boss!.position) < 200) {
+        _cancelActions();
+        boss!.receiveDamage(200.0 * damageMultiplier);
+        specialMeter = 0.0;
+
+        gameRef.camera.viewfinder.add(
+          ScaleEffect.by(
+            Vector2.all(1.05),
+            EffectController(duration: 0.1, alternate: true, repeatCount: 3),
+          ),
+        );
+        HapticFeedback.heavyImpact();
+      }
     }
   }
 
@@ -419,7 +438,7 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
     _cancelActions();
 
     isParrying = true;
-    parryTimer = 0.0; // Inicia a janela de tempo!
+    parryTimer = 0.0;
     isParrySuccessAnim = true;
     parrySuccessTicker?.reset();
   }
@@ -442,15 +461,20 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
 
     if (isParrying) {
       if (parryTimer <= parryWindow) {
-        // PARRY PERFEITO!
         _cancelActions();
 
         isParrying = true;
         isParrySuccessAnim = true;
         parrySuccessTicker?.reset();
+
+        // ==========================================
+        // NOVO: RECOMPENSA DO PARRY (GANHA 15 DE ESPECIAL)
+        // ==========================================
+        specialMeter += 15.0;
+        if (specialMeter > 100.0) specialMeter = 100.0;
+
         return;
       } else {
-        // PARRY FALHOU (Apertou cedo demais!)
         _cancelActions();
 
         health -= (bossDamage * 0.5);
@@ -462,7 +486,6 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
         _ativarTelaPulsando();
       }
     } else {
-      // DANO DIRETO SEM DEFESA
       _cancelActions();
       health -= bossDamage;
 
@@ -475,6 +498,7 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
     continuousHitTimer = 0.0;
     timeSinceLastHit = 99.0;
     decayTimer = 0.0;
+    isHoldingSpecial = false;
 
     if (health <= 0) {
       health = 0;
@@ -507,6 +531,25 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
     if (gameRef.isEditingHUD) return;
 
     if (damageInvulnerabilityTimer > 0) damageInvulnerabilityTimer -= dt;
+
+    if (isHoldingSpecial) {
+      specialHoldTimer += dt;
+      if (specialHoldTimer >= specialHoldThreshold) {
+        if (specialMeter >= 100.0) {
+          health += 4.0;
+          if (health > 5.0) health = 5.0;
+          specialMeter = 0.0;
+          isHoldingSpecial = false;
+          HapticFeedback.lightImpact();
+        } else if (specialMeter >= 50.0) {
+          health += 2.0;
+          if (health > 5.0) health = 5.0;
+          specialMeter -= 50.0;
+          isHoldingSpecial = false;
+          HapticFeedback.lightImpact();
+        }
+      }
+    }
 
     if (isParalyzed) {
       paralyzeTimer -= dt;
@@ -619,8 +662,10 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
             position.distanceTo(boss!.position) < 120) {
           boss!.receiveDamage(40.0 * damageMultiplier);
           hitCount++;
-          specialMeter += (1.0 * comboMultiplier);
+
+          specialMeter += (2.0 * comboMultiplier);
           if (specialMeter > 100.0) specialMeter = 100.0;
+
           timeSinceLastHit = 0.0;
           decayTimer = 0.0;
           acertouAlgo = true;
