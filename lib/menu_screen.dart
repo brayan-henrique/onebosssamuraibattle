@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flame/game.dart';
+import 'package:flame/components.dart'; // <-- Import necessário pro Vector2 funcionar aqui!
 import 'package:flame_audio/flame_audio.dart';
 import 'my_game.dart';
 import 'settings_overlay.dart';
@@ -105,7 +106,7 @@ class _MenuScreenState extends State<MenuScreen> {
                             Center(
                               child: Container(
                                 width: 320,
-                                height: 300,
+                                height: 360,
                                 decoration: BoxDecoration(
                                   color: Colors.grey[900],
                                   borderRadius: BorderRadius.circular(16),
@@ -133,6 +134,7 @@ class _MenuScreenState extends State<MenuScreen> {
                                       ),
                                     ),
                                     const SizedBox(height: 30),
+
                                     SizedBox(
                                       width: 220,
                                       height: 45,
@@ -156,6 +158,35 @@ class _MenuScreenState extends State<MenuScreen> {
                                       ),
                                     ),
                                     const SizedBox(height: 15),
+
+                                    SizedBox(
+                                      width: 220,
+                                      height: 45,
+                                      child: ElevatedButton(
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: Colors.orange[800],
+                                          foregroundColor: Colors.white,
+                                        ),
+                                        onPressed: () {
+                                          gameRef.overlays.remove('PauseMenu');
+                                          gameRef.resetGame();
+                                          FlameAudio.bgm.stop();
+                                          FlameAudio.bgm.play(
+                                            'musica_padrao.mp3',
+                                            volume: AudioManager.bgm,
+                                          );
+                                        },
+                                        child: const Text(
+                                          'RECOMEÇAR',
+                                          style: TextStyle(
+                                            fontSize: 18,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 15),
+
                                     SizedBox(
                                       width: 220,
                                       height: 45,
@@ -178,6 +209,7 @@ class _MenuScreenState extends State<MenuScreen> {
                                       ),
                                     ),
                                     const SizedBox(height: 15),
+
                                     SizedBox(
                                       width: 220,
                                       height: 45,
@@ -543,6 +575,137 @@ class _MenuScreenState extends State<MenuScreen> {
   }
 }
 
+// ==========================================
+// OVERLAY DO REMAPEAMENTO (AQUI OCORRE A MÁGICA)
+// ==========================================
+class RemapOverlay extends StatelessWidget {
+  final MyPixelGame gameRef;
+
+  const RemapOverlay({Key? key, required this.gameRef}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Stack(
+        children: [
+          const Center(
+            child: Text(
+              "MODO EDIÇÃO",
+              style: TextStyle(
+                color: Colors.white54,
+                fontSize: 40,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 10,
+              ),
+            ),
+          ),
+          Positioned(
+            top: 20,
+            left: 0,
+            right: 0,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // BOTAO DE RESETAR (PADRÃO)
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.grey[800],
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 12,
+                    ),
+                  ),
+                  icon: const Icon(Icons.restore, color: Colors.white),
+                  label: const Text(
+                    'PADRÃO',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  onPressed: () {
+                    // Reseta os valores na memória global
+                    HudConfig.resetToDefault();
+
+                    // Coloca o joystick no lugar
+                    gameRef.joystick.position = HudConfig.joystickPos.clone();
+
+                    // Pega todos os botões e devolve para as coordenadas originais lidas da memória
+                    final botoes = gameRef.camera.viewport.children
+                        .whereType<RemappableButton>();
+                    for (var botao in botoes) {
+                      if (botao.debugColor == Colors.red)
+                        botao.position = HudConfig.attackBtnPos.clone();
+                      else if (botao.debugColor == Colors.green)
+                        botao.position = HudConfig.jumpBtnPos.clone();
+                      else if (botao.debugColor == Colors.yellow)
+                        botao.position = HudConfig.dashBtnPos.clone();
+                      else if (botao.debugColor == Colors.blue)
+                        botao.position = HudConfig.parryBtnPos.clone();
+                      else if (botao.debugColor == Colors.purple)
+                        botao.position = HudConfig.specialBtnPos.clone();
+                    }
+                  },
+                ),
+                const SizedBox(width: 40),
+
+                // BOTAO DE SALVAR (APLICAR)
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 12,
+                    ),
+                  ),
+                  icon: const Icon(Icons.check, color: Colors.white),
+                  label: const Text(
+                    'APLICAR E VOLTAR',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  onPressed: () {
+                    // 1. SALVA AS POSIÇÕES NOVAS NA MEMÓRIA GLOBAL!
+                    HudConfig.joystickPos = gameRef.joystick.position.clone();
+                    final botoes = gameRef.camera.viewport.children
+                        .whereType<RemappableButton>();
+                    for (var botao in botoes) {
+                      if (botao.debugColor == Colors.red)
+                        HudConfig.attackBtnPos = botao.position.clone();
+                      else if (botao.debugColor == Colors.green)
+                        HudConfig.jumpBtnPos = botao.position.clone();
+                      else if (botao.debugColor == Colors.yellow)
+                        HudConfig.dashBtnPos = botao.position.clone();
+                      else if (botao.debugColor == Colors.blue)
+                        HudConfig.parryBtnPos = botao.position.clone();
+                      else if (botao.debugColor == Colors.purple)
+                        HudConfig.specialBtnPos = botao.position.clone();
+                    }
+
+                    // 2. FECHA O MENU DE EDIÇÃO E VOLTA
+                    gameRef.isEditingHUD = false;
+                    gameRef.overlays.remove('RemapHUD');
+
+                    if (gameRef.startInRemapMode) {
+                      FlameAudio.bgm.stop();
+                      gameRef.onBackToMenu?.call();
+                    } else {
+                      gameRef.pauseEngine();
+                      gameRef.overlays.add('SettingsMenu');
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class GameOverOverlay extends StatefulWidget {
   final MyPixelGame gameRef;
   const GameOverOverlay({Key? key, required this.gameRef}) : super(key: key);
@@ -655,7 +818,7 @@ class _GameOverOverlayState extends State<GameOverOverlay>
                           FlameAudio.bgm.play(
                             'musica_padrao.mp3',
                             volume: AudioManager.bgm,
-                          ); // Adicionei o AudioManager.bgm aqui pra não estourar o ouvido!
+                          );
                         },
                         child: const Text(
                           'RECOMEÇAR',
@@ -679,12 +842,10 @@ class _GameOverOverlayState extends State<GameOverOverlay>
                           foregroundColor: Colors.white,
                         ),
                         onPressed: () {
-                          // ==== AQUI ESTÁ A CORREÇÃO! ====
                           widget.gameRef.overlays.remove('GameOver');
                           widget.gameRef.resetGame();
-                          FlameAudio.bgm.stop(); // Para a música de morte
-                          widget.gameRef.onBackToMenu
-                              ?.call(); // Chama a ação de voltar ao menu!
+                          FlameAudio.bgm.stop();
+                          widget.gameRef.onBackToMenu?.call();
                         },
                         child: const Text(
                           'VOLTAR PARA O MENU',
