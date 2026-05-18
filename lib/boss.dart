@@ -27,11 +27,9 @@ enum BossState {
   hovering,
   falling,
   kunaiAttack,
-
   spikeJumpUp,
   spikeFall,
   spikeWave,
-
   jumpingToCenter,
   dying,
   exploding,
@@ -43,7 +41,6 @@ enum SpecialAttack { aerialDrop, kunaiRain }
 // ==========================================
 // TELA DE VITÓRIA
 // ==========================================
-
 class VictoryLetter extends TextComponent with HasGameRef<MyPixelGame> {
   final double targetY;
   final double delay;
@@ -73,7 +70,6 @@ class VictoryLetter extends TextComponent with HasGameRef<MyPixelGame> {
         ],
       ),
     );
-
     add(
       MoveEffect.to(
         Vector2(position.x, targetY),
@@ -110,7 +106,6 @@ class VictoryButton extends PositionComponent with HasGameRef<MyPixelGame> {
   @override
   Future<void> onLoad() async {
     add(RectangleHitbox());
-
     final textComp = TextComponent(
       text: label,
       anchor: Anchor.center,
@@ -124,7 +119,6 @@ class VictoryButton extends PositionComponent with HasGameRef<MyPixelGame> {
       ),
     );
     add(textComp);
-
     add(
       MoveEffect.to(
         Vector2(position.x, targetY),
@@ -141,9 +135,7 @@ class VictoryButton extends PositionComponent with HasGameRef<MyPixelGame> {
   void render(Canvas canvas) {
     super.render(canvas);
     final rect = size.toRect();
-
     Color borderColor = jaFoiAtingido ? Colors.green : Colors.yellow;
-
     canvas.drawRRect(
       RRect.fromRectAndRadius(rect, const Radius.circular(8)),
       Paint()..color = Colors.black87,
@@ -160,7 +152,6 @@ class VictoryButton extends PositionComponent with HasGameRef<MyPixelGame> {
   void receiveDamage(double damage) {
     if (jaFoiAtingido) return;
     jaFoiAtingido = true;
-
     HapticFeedback.lightImpact();
     add(
       ScaleEffect.to(
@@ -168,7 +159,6 @@ class VictoryButton extends PositionComponent with HasGameRef<MyPixelGame> {
         EffectController(duration: 0.1, alternate: true),
       ),
     );
-
     onHit();
   }
 }
@@ -176,7 +166,6 @@ class VictoryButton extends PositionComponent with HasGameRef<MyPixelGame> {
 // ==========================================
 // CLASSES DA LUTA
 // ==========================================
-
 class BossExplosion extends SpriteAnimationComponent
     with HasGameRef<MyPixelGame> {
   final String spriteName;
@@ -233,12 +222,9 @@ class Spike extends PositionComponent with HasGameRef<MyPixelGame> {
     try {
       spikeSprite = await gameRef.loadSprite('estaca.png');
     } catch (e) {}
-
     add(RectangleHitbox()..paint.color = Colors.transparent);
     scale = Vector2.all(targetScale);
-
     position.y += 60 * targetScale;
-
     add(
       MoveEffect.by(
         Vector2(0, -60 * targetScale),
@@ -256,25 +242,20 @@ class Spike extends PositionComponent with HasGameRef<MyPixelGame> {
   void update(double dt) {
     super.update(dt);
     if (gameRef.isEditingHUD) return;
-
     if (!hasHit && position.distanceTo(player.position) < 30 * targetScale) {
       player.receiveAttack(1.5);
       hasHit = true;
     }
-
-    if (children.whereType<MoveEffect>().isEmpty) {
-      removeFromParent();
-    }
+    if (children.whereType<MoveEffect>().isEmpty) removeFromParent();
   }
 
   @override
   void render(Canvas canvas) {
     super.render(canvas);
-    if (spikeSprite != null) {
+    if (spikeSprite != null)
       spikeSprite!.render(canvas, size: size);
-    } else {
+    else
       canvas.drawRect(size.toRect(), Paint()..color = Colors.brown);
-    }
   }
 }
 
@@ -283,7 +264,6 @@ class Kunai extends PositionComponent with HasGameRef<MyPixelGame> {
   final double direction;
   final double speed = 423.0;
   bool hasHit = false;
-
   bool isInvoking = true;
   SpriteAnimationTicker? invocationTicker;
   Sprite? kunaiSprite;
@@ -298,7 +278,6 @@ class Kunai extends PositionComponent with HasGameRef<MyPixelGame> {
   Future<void> onLoad() async {
     add(RectangleHitbox()..paint.color = Colors.transparent);
     bool bossNaEsquerda = direction == 1.0;
-
     try {
       if (bossNaEsquerda) {
         final anim = await gameRef.loadSpriteAnimation(
@@ -332,19 +311,16 @@ class Kunai extends PositionComponent with HasGameRef<MyPixelGame> {
   void update(double dt) {
     super.update(dt);
     if (gameRef.isEditingHUD) return;
-
     if (isInvoking) {
       invocationTicker?.update(dt);
       if (invocationTicker?.done() == true) isInvoking = false;
       return;
     }
-
     position.x += speed * direction * dt;
     if (position.x < -100 || position.x > 900) {
       removeFromParent();
       return;
     }
-
     if (!hasHit && position.distanceTo(player.position) < 30) {
       player.receiveAttack(1.0);
       hasHit = true;
@@ -372,7 +348,6 @@ class Kunai extends PositionComponent with HasGameRef<MyPixelGame> {
 
 class BossArm extends SpriteComponent with HasGameRef<MyPixelGame> {
   BossArm() : super(size: Vector2(110, 15), anchor: Anchor.centerLeft);
-
   @override
   Future<void> onLoad() async {
     try {
@@ -389,6 +364,8 @@ class BossArm extends SpriteComponent with HasGameRef<MyPixelGame> {
 
 class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
   final Player player;
+
+  bool isFrozen = false;
 
   double maxHealth = 500.0;
   double currentHealth = 500.0;
@@ -514,25 +491,20 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
     saltosRestantes = 0;
     victoryScreenSpawned = false;
     hurtTimer = 0.0;
-
     distancedTimer = 0.0;
     spikesSpawned = 0;
+    isFrozen = false;
 
-    if (!bossHitbox.isMounted) {
-      add(bossHitbox);
-    }
+    if (!bossHitbox.isMounted) add(bossHitbox);
 
     armRight.removeAll(armRight.children.whereType<OpacityEffect>());
     armRight.paint.color = armRight.paint.color.withOpacity(1.0);
-
     armLeft.removeAll(armLeft.children.whereType<OpacityEffect>());
     armLeft.paint.color = armLeft.paint.color.withOpacity(1.0);
-
     chapeuComponent.removeAll(
       chapeuComponent.children.whereType<OpacityEffect>(),
     );
     chapeuComponent.paint.color = chapeuComponent.paint.color.withOpacity(0.0);
-
     tomoComponent.removeAll(tomoComponent.children.whereType<OpacityEffect>());
     tomoComponent.paint.color = tomoComponent.paint.color.withOpacity(0.0);
 
@@ -544,7 +516,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
   @override
   void render(Canvas canvas) {
     if (currentState == BossState.dead) return;
-
     if (currentPhase == BossPhase.phase3 &&
         (currentState == BossState.dying ||
             currentState == BossState.exploding)) {
@@ -594,6 +565,8 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
 
   @override
   void update(double dt) {
+    if (isFrozen) return;
+
     super.update(dt);
     if (gameRef.isEditingHUD) return;
 
@@ -641,7 +614,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
           position.x -= currentSpeed * dt;
 
         double distancia = position.distanceTo(player.position);
-
         if (distancia <= 120.0) {
           distancedTimer = 0.0;
           currentState = BossState.windup;
@@ -650,7 +622,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
           attackDirection = (player.position.x > position.x) ? 1.0 : -1.0;
         } else {
           distancedTimer += dt;
-
           if (distancedTimer >= 1.0) {
             currentState = BossState.spikeJumpUp;
             stateTimer = 0.0;
@@ -658,27 +629,22 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
           }
         }
         break;
-
       case BossState.spikeJumpUp:
         armRight.angle = lerpDouble(armRight.angle, pi / 2, 10.0 * dt)!;
         armLeft.angle = armRight.angle;
         position.y -= 600 * dt;
-
         if (stateTimer >= 0.25) {
           currentState = BossState.spikeFall;
           stateTimer = 0.0;
         }
         break;
-
       case BossState.spikeFall:
         position.y += 1000 * dt;
-
         if (position.y >= groundLevelY) {
           position.y = groundLevelY;
           currentState = BossState.spikeWave;
           stateTimer = 0.0;
           spikesSpawned = 0;
-
           try {
             FlameAudio.play('impacto_boss.mp3', volume: 0.4);
           } catch (e) {}
@@ -695,24 +661,15 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
           );
         }
         break;
-
       case BossState.spikeWave:
         armRight.angle = pi / 2;
         armLeft.angle = pi / 2;
-
-        // Intervalo mais rápido para as 16 estacas se propagarem bem fluidas
         if (stateTimer >= 0.05) {
-          if (spikesSpawned < 15) {
-            // Aumentado para 16 estacas
+          if (spikesSpawned < 16) {
             spikesSpawned++;
             stateTimer = 0.0;
-
-            // Distância reduzida para 25. (16 * 25 = 400px exatos da borda)
-            double dist = spikesSpawned * 30.0;
-
-            // Ajuste na escala: Começa menor (0.43) e vai até ~2.38
+            double dist = spikesSpawned * 25.0;
             double spikeScale = 0.3 + (spikesSpawned * 0.13);
-
             Vector2 spikePosRight = Vector2(position.x + dist, groundLevelY);
             Spike estacaDir = Spike(
               player: player,
@@ -738,7 +695,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
           }
         }
         break;
-
       case BossState.windup:
         double windupTarget = attackTargetAngle - (1.5 * attackDirection);
         double diff = _normalizeAngle(windupTarget - armRight.angle);
@@ -813,7 +769,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
 
     if (currentState == BossState.windup || currentState == BossState.swinging)
       specialCooldown -= dt;
-
     if (specialCooldown <= 0 &&
         (currentState == BossState.chasing ||
             currentState == BossState.vulnerable)) {
@@ -944,18 +899,15 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
 
   void _updatePhase3(double dt) {
     stateTimer += dt;
-
     switch (currentState) {
       case BossState.jumpingToCenter:
         double jumpDuration = 0.6;
         double progress = stateTimer / jumpDuration;
-
         if (progress >= 1.0) {
           position.x = 400.0;
           position.y = groundLevelY;
           currentState = BossState.dying;
           stateTimer = 0.0;
-
           HapticFeedback.vibrate();
           gameRef.camera.viewfinder.add(
             MoveEffect.by(
@@ -967,7 +919,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
               ),
             ),
           );
-
           add(
             MoveEffect.by(
               Vector2(8, 0),
@@ -984,12 +935,10 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
           position.y = groundLevelY - (sin(progress * pi) * 100);
         }
         break;
-
       case BossState.dying:
         morrendoTicker?.update(dt);
         if (stateTimer >= 6.0) currentState = BossState.exploding;
         break;
-
       case BossState.exploding:
         HapticFeedback.vibrate();
         gameRef.camera.viewfinder.add(
@@ -1020,18 +969,14 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
             priority: 25,
           ),
         );
-
         currentState = BossState.dead;
-        debugPrint("BOSS FINALMENTE DERROTADO E EXPLODIU!");
         break;
-
       case BossState.dead:
         if (!victoryScreenSpawned) {
           victoryScreenSpawned = true;
           _spawnVictoryScreen();
         }
         break;
-
       default:
         break;
     }
@@ -1040,7 +985,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
   void _spawnVictoryScreen() {
     String text = "YOU WIN!";
     double startX = 400 - ((text.length - 1) * 20);
-
     for (int i = 0; i < text.length; i++) {
       gameRef.world.add(
         VictoryLetter(
@@ -1051,9 +995,7 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
         ),
       );
     }
-
     double tempoAteTerminarLetras = (text.length * 0.15) + 0.5;
-
     gameRef.world.add(
       VictoryButton(
         label: "RESTART",
@@ -1068,7 +1010,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
         },
       ),
     );
-
     gameRef.world.add(
       VictoryButton(
         label: "MENU",
@@ -1103,22 +1044,28 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
     gameRef.world.add(novaKunai);
   }
 
-  void receiveDamage(double damage) {
+  void receiveDamage(double damage, {bool isUnblockable = false}) {
     if (currentPhase == BossPhase.phase3) return;
-    if (currentState == BossState.transitioning ||
-        currentState == BossState.jumpingUp ||
-        currentState == BossState.hovering ||
-        currentState == BossState.falling ||
-        currentState == BossState.spikeJumpUp ||
-        currentState == BossState.spikeFall ||
-        currentState == BossState.spikeWave)
-      return;
+
+    // SE NÃO FOR O ULTIMATE, ele fica imune enquanto pula ou transita de fase
+    if (!isUnblockable) {
+      if (currentState == BossState.transitioning ||
+          currentState == BossState.jumpingUp ||
+          currentState == BossState.hovering ||
+          currentState == BossState.falling ||
+          currentState == BossState.spikeJumpUp ||
+          currentState == BossState.spikeFall) {
+        return;
+      }
+    }
 
     hurtTimer = 0.4;
     machucadoTicker?.reset();
 
     if (currentPhase == BossPhase.phase1) {
-      if (currentState == BossState.parryStance && Random().nextInt(100) < 65) {
+      if (!isUnblockable &&
+          currentState == BossState.parryStance &&
+          Random().nextInt(100) < 65) {
         player.applyParalysis(1.875);
         currentState = BossState.windup;
         stateTimer = 0.0;
@@ -1147,11 +1094,7 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
         currentState = BossState.jumpingToCenter;
         jumpStartX = position.x;
         stateTimer = 0.0;
-
-        if (bossHitbox.isMounted) {
-          bossHitbox.removeFromParent();
-        }
-
+        if (bossHitbox.isMounted) bossHitbox.removeFromParent();
         armRight.add(OpacityEffect.fadeOut(EffectController(duration: 0.5)));
         armLeft.add(OpacityEffect.fadeOut(EffectController(duration: 0.5)));
         chapeuComponent.add(

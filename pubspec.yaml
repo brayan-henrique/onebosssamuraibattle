@@ -82,6 +82,9 @@ flutter:
     - assets/images/estaca.png
     - assets/images/estrela_stun.png
     - assets/images/player_stunado.png
+    - assets/images/player_iniciando_especial.png
+    - assets/images/player_ataque-especial.png
+    - assets/images/ataque_especial.png
     
     #==================Audio==================
     - assets/audio/musica_padrao.mp3

@@ -14,8 +14,7 @@ class _MenuScreenState extends State<MenuScreen> {
   bool _deslizarParaBaixo = false;
   bool _jogoIniciado = false;
   bool _mostrarConfiguracoes = false;
-  bool _iniciarComoRemap =
-      false; // <-- NOVO: Define se o jogo inicia só para remapear
+  bool _iniciarComoRemap = false;
 
   void _iniciarJogo() {
     setState(() {
@@ -47,7 +46,7 @@ class _MenuScreenState extends State<MenuScreen> {
             child: _jogoIniciado
                 ? GameWidget(
                     game: MyPixelGame(
-                      startInRemapMode: _iniciarComoRemap, // <-- NOVO
+                      startInRemapMode: _iniciarComoRemap,
                       onBackToMenu: () {
                         setState(() {
                           _jogoIniciado = false;
@@ -210,25 +209,23 @@ class _MenuScreenState extends State<MenuScreen> {
                         );
                       },
 
-                      'SettingsMenu': (BuildContext context, MyPixelGame gameRef) {
-                        return SettingsOverlay(
-                          gameRef: gameRef,
-                          onClose: () {
-                            gameRef.overlays.remove('SettingsMenu');
-                            gameRef.overlays.add('PauseMenu');
+                      'SettingsMenu':
+                          (BuildContext context, MyPixelGame gameRef) {
+                            return SettingsOverlay(
+                              gameRef: gameRef,
+                              onClose: () {
+                                gameRef.overlays.remove('SettingsMenu');
+                                gameRef.overlays.add('PauseMenu');
+                              },
+                              onRemap: () {
+                                gameRef.overlays.remove('SettingsMenu');
+                                gameRef.isEditingHUD = true;
+                                gameRef.resumeEngine();
+                                FlameAudio.bgm.pause();
+                                gameRef.overlays.add('RemapHUD');
+                              },
+                            );
                           },
-                          onRemap: () {
-                            gameRef.overlays.remove('SettingsMenu');
-                            // Entra no modo edição
-                            gameRef.isEditingHUD = true;
-                            gameRef
-                                .resumeEngine(); // <- Essencial para poder arrastar!
-                            FlameAudio.bgm
-                                .pause(); // <- Garante que a música não toque
-                            gameRef.overlays.add('RemapHUD');
-                          },
-                        );
-                      },
 
                       'RemapHUD': (BuildContext context, MyPixelGame gameRef) {
                         return RemapOverlay(gameRef: gameRef);
@@ -355,11 +352,12 @@ class _MenuScreenState extends State<MenuScreen> {
                                                   if (gameRef
                                                           .player
                                                           .damageMultiplier <
-                                                      1)
+                                                      1) {
                                                     gameRef
                                                             .player
                                                             .damageMultiplier =
                                                         1;
+                                                  }
                                                 }),
                                           ),
                                           Text(
@@ -535,7 +533,7 @@ class _MenuScreenState extends State<MenuScreen> {
               onRemap: () {
                 setState(() {
                   _mostrarConfiguracoes = false;
-                  _iniciarJogoEmModoRemap(); // Inicia o jogo direto no remap
+                  _iniciarJogoEmModoRemap();
                 });
               },
             ),
@@ -545,7 +543,6 @@ class _MenuScreenState extends State<MenuScreen> {
   }
 }
 
-// O Restante do código (GameOverOverlay) continua igualzinho aqui embaixo...
 class GameOverOverlay extends StatefulWidget {
   final MyPixelGame gameRef;
   const GameOverOverlay({Key? key, required this.gameRef}) : super(key: key);
@@ -655,7 +652,10 @@ class _GameOverOverlayState extends State<GameOverOverlay>
                         onPressed: () {
                           widget.gameRef.overlays.remove('GameOver');
                           widget.gameRef.resetGame();
-                          FlameAudio.bgm.play('musica_padrao.mp3', volume: 0.1);
+                          FlameAudio.bgm.play(
+                            'musica_padrao.mp3',
+                            volume: AudioManager.bgm,
+                          ); // Adicionei o AudioManager.bgm aqui pra não estourar o ouvido!
                         },
                         child: const Text(
                           'RECOMEÇAR',
@@ -679,12 +679,12 @@ class _GameOverOverlayState extends State<GameOverOverlay>
                           foregroundColor: Colors.white,
                         ),
                         onPressed: () {
+                          // ==== AQUI ESTÁ A CORREÇÃO! ====
                           widget.gameRef.overlays.remove('GameOver');
                           widget.gameRef.resetGame();
-                          FlameAudio.bgm.play(
-                            'musica_padrao.mp3',
-                            volume: AudioManager.bgm,
-                          ); // Usa a classe
+                          FlameAudio.bgm.stop(); // Para a música de morte
+                          widget.gameRef.onBackToMenu
+                              ?.call(); // Chama a ação de voltar ao menu!
                         },
                         child: const Text(
                           'VOLTAR PARA O MENU',
