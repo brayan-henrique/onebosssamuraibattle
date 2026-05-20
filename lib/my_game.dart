@@ -434,7 +434,7 @@ class MyPixelGame extends FlameGame with HasCollisionDetection {
       );
       world.add(
         SpriteComponent(
-          sprite: await loadSprite('chao_default.png'),
+          sprite: await loadSprite('chão_default_v2.png'),
           size: Vector2(800, 360),
         ),
       );
