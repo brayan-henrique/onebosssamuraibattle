@@ -4,15 +4,15 @@ import 'package:flame/components.dart';
 import 'package:flame/input.dart';
 import 'package:flame/events.dart';
 import 'package:flame/sprite.dart';
+import 'package:flame/effects.dart';
+import 'package:flame/collisions.dart';
 import 'package:flame_audio/flame_audio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'player.dart';
 import 'boss.dart';
 import 'settings_overlay.dart';
 
-// ==========================================
-// MEMÓRIA GLOBAL DO HUD (SALVA AS POSIÇÕES)
-// ==========================================
 class HudConfig {
   static Vector2 joystickPos = Vector2(90, 270);
   static Vector2 attackBtnPos = Vector2(745, 305);
@@ -31,25 +31,41 @@ class HudConfig {
   }
 }
 
-// ==========================================
-// CLASSES PARA O REMAPEAMENTO (SINCRONIZADAS)
-// ==========================================
+// ESTADOS DA CINEMÁTICA INICIAL
+enum IntroState {
+  playingGate,
+  waitingForBoss,
+  bossFalling,
+  fadingHud,
+  finished,
+}
 
 class RemappableButton extends PositionComponent
     with TapCallbacks, DragCallbacks, HasGameRef<MyPixelGame> {
   final VoidCallback onPressed;
   final VoidCallback? onReleased;
   final Color debugColor;
+  final CircleComponent fundoBotao;
+  final SpriteComponent? iconeSprite;
+  final Color corOriginal;
 
   RemappableButton({
     required Vector2 position,
     required Vector2 size,
     required this.onPressed,
     this.onReleased,
+    required this.fundoBotao,
+    this.iconeSprite,
+    required this.corOriginal,
     required Component content,
     this.debugColor = Colors.green,
   }) : super(position: position, size: size, anchor: Anchor.center) {
     add(content);
+  }
+
+  void atualizarOpacidade(double opacidade) {
+    fundoBotao.paint.color = corOriginal.withOpacity(0.7 * opacidade);
+    iconeSprite?.paint.color = Colors.white.withOpacity(opacidade);
   }
 
   @override
@@ -110,7 +126,6 @@ class RemappableButton extends PositionComponent
 
 class JoystickDragHandle extends PositionComponent with DragCallbacks {
   final JoystickComponent target;
-
   JoystickDragHandle(this.target)
     : super(size: Vector2(120, 120), anchor: Anchor.center);
 
@@ -149,10 +164,6 @@ class JoystickDragHandle extends PositionComponent with DragCallbacks {
   }
 }
 
-// ==========================================
-// COMPONENTES DE HUD (BARRAS DE VIDA)
-// ==========================================
-
 class BossHealthBar extends PositionComponent with HasGameRef<MyPixelGame> {
   final Boss boss;
   BossHealthBar(this.boss)
@@ -161,12 +172,15 @@ class BossHealthBar extends PositionComponent with HasGameRef<MyPixelGame> {
   @override
   void render(Canvas canvas) {
     super.render(canvas);
-    canvas.drawRect(size.toRect(), Paint()..color = Colors.grey.withAlpha(150));
+    canvas.drawRect(
+      size.toRect(),
+      Paint()..color = Colors.grey.withOpacity(0.6 * gameRef.hudOpacity),
+    );
     double healthRatio = boss.currentHealth / boss.maxHealth;
     if (healthRatio > 0) {
       canvas.drawRect(
         Rect.fromLTWH(0, 0, size.x * healthRatio, size.y),
-        Paint()..color = Colors.red,
+        Paint()..color = Colors.red.withOpacity(gameRef.hudOpacity),
       );
     }
   }
@@ -181,10 +195,10 @@ class PlayerHealthBar extends PositionComponent with HasGameRef<MyPixelGame> {
 
   final Vector2 tamanhoFundo = Vector2(258, 58);
   final double posGotasX = 60.0;
-  final double posBarraX = 52.0;
   final double posGotasY = 5.0;
   final double espacamentoGotas = 36.0;
   final Vector2 tamanhoGota = Vector2.all(32);
+  final double posBarraX = 52.0;
   final double posBarraY = 40.0;
   final double larguraBarra = 200.0;
   final double alturaBarra = 12.0;
@@ -193,30 +207,6 @@ class PlayerHealthBar extends PositionComponent with HasGameRef<MyPixelGame> {
   final double posComboY = 105.0;
 
   double shakeTimer = 0.0;
-
-  final TextPaint hitCountPaint = TextPaint(
-    style: const TextStyle(
-      color: Colors.white,
-      fontSize: 26,
-      fontWeight: FontWeight.bold,
-      fontStyle: FontStyle.italic,
-      shadows: [
-        Shadow(color: Colors.redAccent, blurRadius: 4, offset: Offset(2, 2)),
-      ],
-    ),
-  );
-  final TextPaint comboPaint = TextPaint(
-    style: const TextStyle(
-      color: Colors.yellowAccent,
-      fontSize: 18,
-      fontWeight: FontWeight.bold,
-      letterSpacing: 1.0,
-      shadows: [
-        Shadow(color: Colors.black, blurRadius: 4, offset: Offset(2, 2)),
-      ],
-    ),
-  );
-
   PlayerHealthBar(this.player)
     : super(position: Vector2(20, 50), size: Vector2(258, 150));
 
@@ -257,6 +247,7 @@ class PlayerHealthBar extends PositionComponent with HasGameRef<MyPixelGame> {
 
   @override
   void render(Canvas canvas) {
+    if (gameRef.hudOpacity <= 0) return;
     canvas.save();
 
     if (player.specialMeter >= 100.0) {
@@ -268,11 +259,12 @@ class PlayerHealthBar extends PositionComponent with HasGameRef<MyPixelGame> {
     super.render(canvas);
 
     if (fundoHud != null) {
-      fundoHud!.render(canvas, position: Vector2.zero(), size: tamanhoFundo);
-    } else {
-      canvas.drawRect(
-        Rect.fromLTWH(0, 0, tamanhoFundo.x, tamanhoFundo.y),
-        Paint()..color = Colors.black.withOpacity(0.5),
+      fundoHud!.render(
+        canvas,
+        position: Vector2.zero(),
+        size: tamanhoFundo,
+        overridePaint: Paint()
+          ..color = Colors.white.withOpacity(gameRef.hudOpacity),
       );
     }
 
@@ -281,26 +273,39 @@ class PlayerHealthBar extends PositionComponent with HasGameRef<MyPixelGame> {
       Vector2 pos = Vector2(xAtual, posGotasY);
       if (player.health >= i + 1) {
         if (gotaCheia != null)
-          gotaCheia!.render(canvas, position: pos, size: tamanhoGota);
+          gotaCheia!.render(
+            canvas,
+            position: pos,
+            size: tamanhoGota,
+            overridePaint: Paint()
+              ..color = Colors.white.withOpacity(gameRef.hudOpacity),
+          );
       } else if (player.health > i && player.health < i + 1) {
         if (gotaMetadeTicker != null)
           gotaMetadeTicker!.getSprite().render(
             canvas,
             position: pos,
             size: tamanhoGota,
+            overridePaint: Paint()
+              ..color = Colors.white.withOpacity(gameRef.hudOpacity),
           );
       } else {
         if (gotaVazia != null)
-          gotaVazia!.render(canvas, position: pos, size: tamanhoGota);
+          gotaVazia!.render(
+            canvas,
+            position: pos,
+            size: tamanhoGota,
+            overridePaint: Paint()
+              ..color = Colors.white.withOpacity(gameRef.hudOpacity),
+          );
       }
     }
 
     double gap = 4.0;
     double halfWidth = (larguraBarra - gap) / 2;
-
     canvas.drawRect(
       Rect.fromLTWH(posBarraX, posBarraY, halfWidth, alturaBarra),
-      Paint()..color = Colors.grey.withAlpha(150),
+      Paint()..color = Colors.grey.withOpacity(0.6 * gameRef.hudOpacity),
     );
     canvas.drawRect(
       Rect.fromLTWH(
@@ -309,16 +314,18 @@ class PlayerHealthBar extends PositionComponent with HasGameRef<MyPixelGame> {
         halfWidth,
         alturaBarra,
       ),
-      Paint()..color = Colors.grey.withAlpha(150),
+      Paint()..color = Colors.grey.withOpacity(0.6 * gameRef.hudOpacity),
     );
 
-    Paint specialPaint = Paint()..color = Colors.blueAccent;
-
+    Paint specialPaint = Paint()
+      ..color = Colors.blueAccent.withOpacity(gameRef.hudOpacity);
     if (player.specialMeter >= 100.0) {
       if ((shakeTimer * 10).floor() % 2 == 0)
-        specialPaint.color = Colors.purpleAccent;
+        specialPaint.color = Colors.purpleAccent.withOpacity(
+          gameRef.hudOpacity,
+        );
       else
-        specialPaint.color = Colors.redAccent;
+        specialPaint.color = Colors.redAccent.withOpacity(gameRef.hudOpacity);
     }
 
     if (player.specialMeter > 0) {
@@ -329,7 +336,6 @@ class PlayerHealthBar extends PositionComponent with HasGameRef<MyPixelGame> {
         Rect.fromLTWH(posBarraX, posBarraY, halfWidth * bar1Ratio, alturaBarra),
         specialPaint,
       );
-
       if (player.specialMeter > 50.0) {
         double bar2Ratio = (player.specialMeter - 50.0) / 50.0;
         canvas.drawRect(
@@ -345,13 +351,26 @@ class PlayerHealthBar extends PositionComponent with HasGameRef<MyPixelGame> {
     }
 
     if (player.hitCount >= 2)
-      hitCountPaint.render(
+      TextPaint(
+        style: TextStyle(
+          color: Colors.white.withOpacity(gameRef.hudOpacity),
+          fontSize: 26,
+          fontWeight: FontWeight.bold,
+          fontStyle: FontStyle.italic,
+        ),
+      ).render(
         canvas,
         '${player.hitCount} HITS!',
         Vector2(posTextosX, posHitsY),
       );
     if (player.comboMultiplier > 1)
-      comboPaint.render(
+      TextPaint(
+        style: TextStyle(
+          color: Colors.yellowAccent.withOpacity(gameRef.hudOpacity),
+          fontSize: 18,
+          fontWeight: FontWeight.bold,
+        ),
+      ).render(
         canvas,
         'Combo ${player.comboMultiplier}x',
         Vector2(posTextosX, posComboY),
@@ -360,10 +379,6 @@ class PlayerHealthBar extends PositionComponent with HasGameRef<MyPixelGame> {
     canvas.restore();
   }
 }
-
-// ==========================================
-// CLASSE PRINCIPAL DO JOGO
-// ==========================================
 
 class MyPixelGame extends FlameGame with HasCollisionDetection {
   late final JoystickComponent joystick;
@@ -376,6 +391,16 @@ class MyPixelGame extends FlameGame with HasCollisionDetection {
   int sunClickCount = 0;
   bool cheatUnlocked = false;
   bool bossDamageDisabled = false;
+
+  // VARIÁVEIS DA CINEMÁTICA
+  IntroState introState = IntroState.playingGate;
+  double introTimer = 0.0;
+  bool hasVibratedGate = false;
+  double hudOpacity = 0.0;
+  SpriteAnimationComponent? gateComponent;
+
+  List<RemappableButton> hudButtons = [];
+  late HudButtonComponent pauseButton;
 
   bool _isEditingHUD = false;
   bool get isEditingHUD => _isEditingHUD;
@@ -406,16 +431,17 @@ class MyPixelGame extends FlameGame with HasCollisionDetection {
         'impacto_boss.mp3',
       ]);
       FlameAudio.bgm.initialize();
-      if (!startInRemapMode) {
+      if (!startInRemapMode)
         FlameAudio.bgm.play('musica_padrao.mp3', volume: AudioManager.bgm);
-      }
     } catch (e) {}
 
     try {
+      // TODOS os cenários com tamanho interno original 267x120 sendo esticados para 800x360
       world.add(
         SpriteComponent(
           sprite: await loadSprite('ceu_limpo.png'),
           size: Vector2(800, 360),
+          priority: 0,
         ),
       );
       final nuvensAnim = await loadSpriteAnimation(
@@ -430,46 +456,71 @@ class MyPixelGame extends FlameGame with HasCollisionDetection {
         SpriteAnimationComponent(
           animation: nuvensAnim,
           size: Vector2(800, 360),
+          priority: 0,
         ),
       );
       world.add(
         SpriteComponent(
           sprite: await loadSprite('chão_default_v2.png'),
           size: Vector2(800, 360),
+          priority: 0,
+        ),
+      );
+
+      world.add(
+        PositionComponent(position: Vector2(0, 0), size: Vector2(5, 360))
+          ..add(RectangleHitbox()),
+      );
+      world.add(
+        PositionComponent(position: Vector2(795, 0), size: Vector2(5, 360))
+          ..add(RectangleHitbox()),
+      );
+
+      // ANIMAÇÃO DO PORTÃO COM O TEXTURESIZE CORRIGIDO (267x120)
+      try {
+        final gateAnim = await loadSpriteAnimation(
+          'animacao_portao.png',
+          SpriteAnimationData.sequenced(
+            amount: 7,
+            stepTime: 0.12,
+            textureSize: Vector2(267, 120),
+            loop: false,
+          ),
+        );
+        gateComponent = SpriteAnimationComponent(
+          animation: gateAnim,
+          size: Vector2(800, 360),
+          priority: 1,
+        );
+        world.add(gateComponent!);
+      } catch (e) {
+        debugPrint(
+          'Aviso: animacao_portao.png não carregada ou tamanho incorreto. Pulando animação do portão.',
+        );
+      }
+
+      camera.viewfinder.add(
+        MoveEffect.by(
+          Vector2(0, 3),
+          EffectController(
+            duration: 0.05,
+            reverseDuration: 0.05,
+            repeatCount: 5,
+          ),
         ),
       );
     } catch (e) {}
 
-    camera.viewport.add(
-      HudButtonComponent(
-        button: RectangleComponent(
-          size: Vector2(80, 80),
-          paint: Paint()..color = Colors.transparent,
-        ),
-        position: Vector2(700, 32),
-        onPressed: () {
-          if (isEditingHUD) return;
-          if (cheatUnlocked && !overlays.isActive('CheatMenu')) {
-            pauseEngine();
-            overlays.add('CheatMenu');
-          }
-        },
-      ),
-    );
-
-    // ===============================================
-    // LENDO AS POSIÇÕES DO HUDCONFIG
-    // ===============================================
     joystick = JoystickComponent(
       knob: CircleComponent(
         radius: 20,
-        paint: Paint()..color = Colors.white.withAlpha(128),
+        paint: Paint()..color = Colors.white.withOpacity(0.0),
       ),
       background: CircleComponent(
         radius: 50,
-        paint: Paint()..color = Colors.white.withAlpha(51),
+        paint: Paint()..color = Colors.white.withOpacity(0.0),
       ),
-      position: HudConfig.joystickPos, // <-- PUXANDO DA MEMÓRIA
+      position: HudConfig.joystickPos,
     );
     camera.viewport.add(joystick);
     joystickHandle = JoystickDragHandle(joystick);
@@ -477,7 +528,8 @@ class MyPixelGame extends FlameGame with HasCollisionDetection {
     player = Player(joystick: joystick)..priority = 10;
     boss = Boss(player: player)..priority = 5;
 
-    boss.position = Vector2(600, 278);
+    player.position = Vector2(108, 312);
+    boss.position = Vector2(592, -200);
     player.boss = boss;
 
     world.add(player);
@@ -487,71 +539,102 @@ class MyPixelGame extends FlameGame with HasCollisionDetection {
     camera.viewport.add(PlayerHealthBar(player));
 
     camera.viewport.add(
-      await _criarBotaoPause(
-        imagem: 'icone_pause.png',
-        corFundo: Colors.black,
-        raio: 20,
-        margem: const EdgeInsets.only(top: 20, right: 20),
+      HudButtonComponent(
+        button: RectangleComponent(
+          size: Vector2(80, 80),
+          paint: Paint()..color = Colors.transparent,
+        ),
+        position: Vector2(700, 32),
         onPressed: () {
-          if (isEditingHUD) return;
-          pauseEngine();
-          FlameAudio.bgm.pause();
-          overlays.add('PauseMenu');
+          if (!isEditingHUD &&
+              cheatUnlocked &&
+              !overlays.isActive('CheatMenu')) {
+            pauseEngine();
+            overlays.add('CheatMenu');
+          }
         },
       ),
     );
 
-    camera.viewport.add(
+    final pFundo = CircleComponent(
+      radius: 20,
+      paint: Paint()..color = Colors.black.withOpacity(0),
+    );
+    try {
+      final spr = await loadSprite('icone_pause.png');
+      final pIcone = SpriteComponent(
+        sprite: spr,
+        size: Vector2.all(24),
+        anchor: Anchor.center,
+        position: Vector2(20, 20),
+      );
+      pIcone.paint.color = Colors.white.withOpacity(0);
+      pFundo.add(pIcone);
+    } catch (e) {}
+    pauseButton = HudButtonComponent(
+      button: pFundo,
+      margin: const EdgeInsets.only(top: 20, right: 20),
+      onPressed: () {
+        if (isEditingHUD) return;
+        pauseEngine();
+        FlameAudio.bgm.pause();
+        overlays.add('PauseMenu');
+      },
+    );
+    camera.viewport.add(pauseButton);
+
+    hudButtons.add(
       await _criarBotaoRemapeavel(
         imagem: 'icone_ataque_basico-1.png',
         corFundo: Colors.red,
         raio: 25,
-        posicao: HudConfig.attackBtnPos, // <-- PUXANDO DA MEMÓRIA
+        posicao: HudConfig.attackBtnPos,
         onPressed: () => player.basicAttack(),
         debugColor: Colors.red,
       ),
     );
-
-    camera.viewport.add(
+    hudButtons.add(
       await _criarBotaoRemapeavel(
         imagem: 'icone_pulo-1.png',
         corFundo: Colors.green,
         raio: 25,
-        posicao: HudConfig.jumpBtnPos, // <-- PUXANDO DA MEMÓRIA
+        posicao: HudConfig.jumpBtnPos,
         onPressed: () => player.jump(),
         debugColor: Colors.green,
       ),
     );
-
-    camera.viewport.add(
+    hudButtons.add(
       await _criarBotaoRemapeavel(
         imagem: 'icon_dash-1.png',
         corFundo: Colors.yellow,
         raio: 25,
-        posicao: HudConfig.dashBtnPos, // <-- PUXANDO DA MEMÓRIA
+        posicao: HudConfig.dashBtnPos,
         onPressed: () => player.dash(),
         debugColor: Colors.yellow,
       ),
     );
-
-    camera.viewport.add(
+    hudButtons.add(
       await _criarBotaoRemapeavel(
         imagem: 'Escudo_icone-1.png',
         corFundo: Colors.blue,
         raio: 25,
-        posicao: HudConfig.parryBtnPos, // <-- PUXANDO DA MEMÓRIA
+        posicao: HudConfig.parryBtnPos,
         onPressed: () => player.tentarParry(),
         debugColor: Colors.blue,
       ),
     );
 
-    camera.viewport.add(
+    final sFundo = CircleComponent(
+      radius: 20,
+      paint: Paint()..color = Colors.purple.withOpacity(0),
+    );
+    hudButtons.add(
       RemappableButton(
-        content: CircleComponent(
-          radius: 20,
-          paint: Paint()..color = Colors.purple.withAlpha(200),
-        ),
-        position: HudConfig.specialBtnPos, // <-- PUXANDO DA MEMÓRIA
+        fundoBotao: sFundo,
+        iconeSprite: null,
+        corOriginal: Colors.purple,
+        content: sFundo,
+        position: HudConfig.specialBtnPos,
         size: Vector2.all(40),
         onPressed: () => player.startSpecial(),
         onReleased: () => player.releaseSpecial(),
@@ -559,9 +642,71 @@ class MyPixelGame extends FlameGame with HasCollisionDetection {
       ),
     );
 
+    for (var btn in hudButtons) {
+      camera.viewport.add(btn);
+    }
+
     if (startInRemapMode) {
       isEditingHUD = true;
+      introState = IntroState.finished;
+      hudOpacity = 1.0;
+      _atualizarOpacidadeHUD();
       overlays.add('RemapHUD');
+    }
+  }
+
+  @override
+  void update(double dt) {
+    super.update(dt);
+
+    if (introState == IntroState.playingGate) {
+      if (gateComponent != null) {
+        if (gateComponent!.animationTicker?.currentIndex == 6 &&
+            !hasVibratedGate) {
+          HapticFeedback.heavyImpact();
+          hasVibratedGate = true;
+        }
+        if (gateComponent!.animationTicker?.done() == true) {
+          introState = IntroState.waitingForBoss;
+        }
+      } else {
+        introState = IntroState.waitingForBoss;
+      }
+    } else if (introState == IntroState.waitingForBoss) {
+      introTimer += dt;
+      if (introTimer >= 0.8) {
+        boss.startIntroFall();
+        introState = IntroState.bossFalling;
+      }
+    } else if (introState == IntroState.fadingHud) {
+      hudOpacity += dt * 2.0;
+      if (hudOpacity >= 1.0) {
+        hudOpacity = 1.0;
+        introState = IntroState.finished;
+      }
+      _atualizarOpacidadeHUD();
+    }
+  }
+
+  void _atualizarOpacidadeHUD() {
+    (joystick.knob as CircleComponent).paint.color = Colors.white.withOpacity(
+      0.5 * hudOpacity,
+    );
+    (joystick.background as CircleComponent).paint.color = Colors.white
+        .withOpacity(0.2 * hudOpacity);
+
+    if (pauseButton.button is CircleComponent) {
+      (pauseButton.button as CircleComponent).paint.color = Colors.black
+          .withOpacity(0.7 * hudOpacity);
+      if (pauseButton.button!.children.isNotEmpty) {
+        final child = pauseButton.button!.children.first;
+        if (child is SpriteComponent)
+          child.paint.color = Colors.white.withOpacity(hudOpacity);
+      }
+    }
+
+    for (var btn in hudButtons) {
+      btn.atualizarOpacidade(hudOpacity);
     }
   }
 
@@ -573,7 +718,6 @@ class MyPixelGame extends FlameGame with HasCollisionDetection {
     player.continuousHitTimer = 0.0;
     player.timeSinceLastHit = 0.0;
     player.decayTimer = 0.0;
-    player.position = Vector2(100, player.groundLevelY);
     player.velocity = Vector2.zero();
     player.isInvincible = false;
     player.isParrying = false;
@@ -583,8 +727,14 @@ class MyPixelGame extends FlameGame with HasCollisionDetection {
     player.isParryFailAnim = false;
     player.isHoldingSpecial = false;
     player.specialHoldTimer = 0.0;
+    player.speed = 250;
 
+    introState = IntroState.finished;
+    hudOpacity = 1.0;
+    _atualizarOpacidadeHUD();
+    player.position = Vector2(108, player.groundLevelY);
     boss.resetBoss();
+    boss.position = Vector2(592, 278);
 
     world.children.whereType<Kunai>().forEach(
       (kunai) => kunai.removeFromParent(),
@@ -602,36 +752,6 @@ class MyPixelGame extends FlameGame with HasCollisionDetection {
     resumeEngine();
   }
 
-  Future<HudButtonComponent> _criarBotaoPause({
-    required String imagem,
-    required Color corFundo,
-    required double raio,
-    required EdgeInsets margem,
-    required VoidCallback onPressed,
-  }) async {
-    final fundoBotao = CircleComponent(
-      radius: raio,
-      paint: Paint()..color = corFundo.withAlpha(180),
-    );
-    try {
-      final sprite = await loadSprite(imagem);
-      fundoBotao.add(
-        SpriteComponent(
-          sprite: sprite,
-          size: Vector2.all(raio * 1.2),
-          anchor: Anchor.center,
-          position: Vector2(raio, raio),
-        ),
-      );
-    } catch (e) {}
-
-    return HudButtonComponent(
-      button: fundoBotao,
-      margin: margem,
-      onPressed: onPressed,
-    );
-  }
-
   Future<RemappableButton> _criarBotaoRemapeavel({
     required String imagem,
     required Color corFundo,
@@ -641,24 +761,31 @@ class MyPixelGame extends FlameGame with HasCollisionDetection {
     VoidCallback? onReleased,
     required Color debugColor,
   }) async {
-    final fundoBotao = CircleComponent(
+    final fundo = CircleComponent(
       radius: raio,
-      paint: Paint()..color = corFundo.withAlpha(180),
+      paint: Paint()..color = corFundo.withOpacity(0),
     );
+    SpriteComponent? icone;
+
     try {
-      final sprite = await loadSprite(imagem);
-      fundoBotao.add(
-        SpriteComponent(
-          sprite: sprite,
-          size: Vector2.all(raio * 1.2),
-          anchor: Anchor.center,
-          position: Vector2(raio, raio),
-        ),
+      final spr = await loadSprite(imagem);
+      icone = SpriteComponent(
+        sprite: spr,
+        size: Vector2.all(raio * 1.2),
+        anchor: Anchor.center,
+        position: Vector2(raio, raio),
       );
-    } catch (e) {}
+      icone.paint.color = Colors.white.withOpacity(0);
+      fundo.add(icone);
+    } catch (e) {
+      debugPrint('Aviso: $imagem não encontrada no pubspec.yaml');
+    }
 
     return RemappableButton(
-      content: fundoBotao,
+      fundoBotao: fundo,
+      iconeSprite: icone,
+      corOriginal: corFundo,
+      content: fundo,
       position: posicao,
       size: Vector2.all(raio * 2),
       onPressed: onPressed,

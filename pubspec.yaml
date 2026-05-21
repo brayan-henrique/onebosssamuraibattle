@@ -86,6 +86,7 @@ flutter:
     - assets/images/player_ataque-especial.png
     - assets/images/ataque_especial.png
     - assets/images/chão_default_v2.png
+    - assets/images/animacao_portao.png
     
     #==================Audio==================
     - assets/audio/musica_padrao.mp3

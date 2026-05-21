@@ -16,6 +16,8 @@ import 'settings_overlay.dart';
 enum BossPhase { phase1, phase2, phase3 }
 
 enum BossState {
+  introWaiting,
+  introFalling, // <--- NOVOS ESTADOS DA CINEMÁTICA
   chasing,
   windup,
   swinging,
@@ -38,13 +40,9 @@ enum BossState {
 
 enum SpecialAttack { aerialDrop, kunaiRain }
 
-// ==========================================
-// TELA DE VITÓRIA
-// ==========================================
 class VictoryLetter extends TextComponent with HasGameRef<MyPixelGame> {
   final double targetY;
   final double delay;
-
   VictoryLetter({
     required String letter,
     required Vector2 startPos,
@@ -56,7 +54,6 @@ class VictoryLetter extends TextComponent with HasGameRef<MyPixelGame> {
          anchor: Anchor.center,
          priority: 1000,
        );
-
   @override
   Future<void> onLoad() async {
     textRenderer = TextPaint(
@@ -89,7 +86,6 @@ class VictoryButton extends PositionComponent with HasGameRef<MyPixelGame> {
   final double delay;
   final VoidCallback onHit;
   bool jaFoiAtingido = false;
-
   VictoryButton({
     required this.label,
     required Vector2 startPos,
@@ -102,7 +98,6 @@ class VictoryButton extends PositionComponent with HasGameRef<MyPixelGame> {
          anchor: Anchor.center,
          priority: 1000,
        );
-
   @override
   Future<void> onLoad() async {
     add(RectangleHitbox());
@@ -163,14 +158,10 @@ class VictoryButton extends PositionComponent with HasGameRef<MyPixelGame> {
   }
 }
 
-// ==========================================
-// CLASSES DA LUTA
-// ==========================================
 class BossExplosion extends SpriteAnimationComponent
     with HasGameRef<MyPixelGame> {
   final String spriteName;
   final int frameAmount;
-
   BossExplosion({
     required this.spriteName,
     required this.frameAmount,
@@ -184,7 +175,6 @@ class BossExplosion extends SpriteAnimationComponent
          removeOnFinish: true,
          priority: priority,
        );
-
   @override
   Future<void> onLoad() async {
     try {
@@ -206,7 +196,6 @@ class Spike extends PositionComponent with HasGameRef<MyPixelGame> {
   final double targetScale;
   bool hasHit = false;
   Sprite? spikeSprite;
-
   Spike({
     required this.player,
     required Vector2 position,
@@ -216,7 +205,6 @@ class Spike extends PositionComponent with HasGameRef<MyPixelGame> {
          size: Vector2(30, 60),
          anchor: Anchor.bottomCenter,
        );
-
   @override
   Future<void> onLoad() async {
     try {
@@ -267,13 +255,11 @@ class Kunai extends PositionComponent with HasGameRef<MyPixelGame> {
   bool isInvoking = true;
   SpriteAnimationTicker? invocationTicker;
   Sprite? kunaiSprite;
-
   Kunai({
     required this.player,
     required this.direction,
     required Vector2 position,
   }) : super(size: Vector2(30, 34), position: position, anchor: Anchor.center);
-
   @override
   Future<void> onLoad() async {
     add(RectangleHitbox()..paint.color = Colors.transparent);
@@ -364,14 +350,14 @@ class BossArm extends SpriteComponent with HasGameRef<MyPixelGame> {
 
 class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
   final Player player;
-
   bool isFrozen = false;
 
   double maxHealth = 500.0;
   double currentHealth = 500.0;
 
   BossPhase currentPhase = BossPhase.phase1;
-  BossState currentState = BossState.chasing;
+  BossState currentState = BossState.introWaiting; // COMEÇA ESPERANDO O PORTÃO!
+
   double stateTimer = 0.0;
   late double attackTargetAngle;
   late double attackDirection;
@@ -412,7 +398,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
     try {
       spriteIdle = await gameRef.loadSprite('boss_reserva.png');
       spriteAtacando = await gameRef.loadSprite('boss_reserva_atacando.png');
-
       final parryAnim = await gameRef.loadSpriteAnimation(
         'boss_reserva_parry.png',
         SpriteAnimationData.variable(
@@ -423,7 +408,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
         ),
       );
       parryTicker = parryAnim.createTicker();
-
       final machucadoAnim = await gameRef.loadSpriteAnimation(
         'boss_reserva_machucado.png',
         SpriteAnimationData.sequenced(
@@ -433,7 +417,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
         ),
       );
       machucadoTicker = machucadoAnim.createTicker();
-
       final morrendoAnim = await gameRef.loadSpriteAnimation(
         'boss_morrendo.png',
         SpriteAnimationData.sequenced(
@@ -485,8 +468,8 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
     maxHealth = 500.0;
     currentHealth = 500.0;
     currentPhase = BossPhase.phase1;
-    currentState = BossState.chasing;
-    position = Vector2(600, 278);
+    currentState =
+        BossState.chasing; // Restarta direto pro jogo ignorando intro
     stateTimer = 0.0;
     saltosRestantes = 0;
     victoryScreenSpawned = false;
@@ -511,6 +494,11 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
     morrendoTicker?.reset();
     parryTicker?.reset();
     machucadoTicker?.reset();
+  }
+
+  // MÉTODO PARA O MY_GAME ACIONAR A QUEDA
+  void startIntroFall() {
+    currentState = BossState.introFalling;
   }
 
   @override
@@ -566,13 +554,11 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
   @override
   void update(double dt) {
     if (isFrozen) return;
-
     super.update(dt);
     if (gameRef.isEditingHUD) return;
 
     parryTicker?.update(dt);
     machucadoTicker?.update(dt);
-
     if (hurtTimer > 0) hurtTimer -= dt;
 
     if (currentPhase == BossPhase.phase1)
@@ -599,6 +585,35 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
     final double combatRotationSpeed = 12.0;
 
     switch (currentState) {
+      case BossState.introWaiting:
+        // Apenas esperando o comando do jogo para cair
+        break;
+      case BossState.introFalling:
+        position.y += 2000 * dt; // Cai muito rápido!
+        if (position.y >= groundLevelY) {
+          position.y = groundLevelY;
+          currentState = BossState.chasing;
+          stateTimer = 0.0;
+
+          // Impacto! Tremilique, Áudio e FadeIn na HUD!
+          try {
+            FlameAudio.play('impacto_boss.mp3', volume: 0.6);
+          } catch (e) {}
+          HapticFeedback.vibrate();
+          gameRef.camera.viewfinder.add(
+            MoveEffect.by(
+              Vector2(0, 15),
+              EffectController(
+                duration: 0.1,
+                reverseDuration: 0.1,
+                repeatCount: 2,
+              ),
+            ),
+          );
+
+          gameRef.introState = IntroState.fadingHud;
+        }
+        break;
       case BossState.chasing:
         double targetAngle = atan2(
           player.position.y - position.y,
@@ -882,7 +897,7 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
             jaVibrouNoChao = true;
           }
           if (position.distanceTo(player.position) < 100)
-            player.receiveAttack(2.0);
+            player.receiveAttack(1.0);
           saltosRestantes--;
           if (saltosRestantes > 0)
             currentState = BossState.jumpingUp;
@@ -1046,8 +1061,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
 
   void receiveDamage(double damage, {bool isUnblockable = false}) {
     if (currentPhase == BossPhase.phase3) return;
-
-    // SE NÃO FOR O ULTIMATE, ele fica imune enquanto pula ou transita de fase
     if (!isUnblockable) {
       if (currentState == BossState.transitioning ||
           currentState == BossState.jumpingUp ||
@@ -1058,10 +1071,8 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
         return;
       }
     }
-
     hurtTimer = 0.4;
     machucadoTicker?.reset();
-
     if (currentPhase == BossPhase.phase1) {
       if (!isUnblockable &&
           currentState == BossState.parryStance &&

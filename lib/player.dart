@@ -9,9 +9,6 @@ import 'my_game.dart';
 import 'boss.dart';
 import 'settings_overlay.dart';
 
-// ==========================================
-// EFEITOS VISUAIS E CINEMÁTICOS
-// ==========================================
 class JumpPuffEffect extends SpriteAnimationComponent
     with HasGameRef<MyPixelGame> {
   JumpPuffEffect({required Vector2 position, required Vector2 size})
@@ -67,7 +64,6 @@ class SlashEffect extends SpriteAnimationComponent
   }
 }
 
-// O PROJÉTIL DO ULTIMATE QUE CRESCE ATÉ AO TAMANHO DO BOSS
 class UltimateSlash extends PositionComponent with HasGameRef<MyPixelGame> {
   final double direction;
   final Boss boss;
@@ -93,7 +89,6 @@ class UltimateSlash extends PositionComponent with HasGameRef<MyPixelGame> {
       slashSprite = await gameRef.loadSprite('ataque_especial.png');
     } catch (e) {}
     add(RectangleHitbox()..paint.color = Colors.transparent);
-
     scale = Vector2.all(0.2);
     add(ScaleEffect.to(Vector2(2.5, 3.0), EffectController(duration: 0.3)));
   }
@@ -102,15 +97,12 @@ class UltimateSlash extends PositionComponent with HasGameRef<MyPixelGame> {
   void update(double dt) {
     super.update(dt);
     position.x += 1000 * direction * dt;
-
     if (position.x < -400 || position.x > 1400) removeFromParent();
 
     if (!hasHit && position.distanceTo(boss.position) < 300) {
       boss.receiveDamage(120.0 * player.damageMultiplier, isUnblockable: true);
-
       player.specialMeter += (20.0 * player.comboMultiplier);
       if (player.specialMeter > 100.0) player.specialMeter = 100.0;
-
       hasHit = true;
     }
   }
@@ -144,9 +136,6 @@ class CinematicBackground extends PositionComponent
   }
 }
 
-// ==========================================
-// CLASSE PLAYER
-// ==========================================
 class Player extends PositionComponent with HasGameRef<MyPixelGame> {
   final JoystickComponent joystick;
   Boss? boss;
@@ -360,7 +349,6 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
         ),
       );
       parryFailTicker = parryFalhaAnim.createTicker();
-
       final specStartAnim = await gameRef.loadSpriteAnimation(
         'player_iniciando_especial.png',
         SpriteAnimationData.sequenced(
@@ -371,7 +359,6 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
         ),
       );
       specialStartTicker = specStartAnim.createTicker();
-
       final specAtkAnim = await gameRef.loadSpriteAnimation(
         'player_ataque-especial.png',
         SpriteAnimationData.sequenced(
@@ -396,7 +383,7 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
         maxPlayers: 3,
       );
     } catch (e) {}
-    position = Vector2(100, groundLevelY);
+    position = Vector2(108, groundLevelY); // <-- NASCE A 108 AGORA!
     stepTimer = stepInterval;
   }
 
@@ -423,6 +410,7 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
   }
 
   void jump() {
+    if (gameRef.introState != IntroState.finished) return;
     if (isDashing ||
         isParrying ||
         isParalyzed ||
@@ -450,6 +438,7 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
   }
 
   void dash() {
+    if (gameRef.introState != IntroState.finished) return;
     if (isInvincible ||
         isParrying ||
         dashCooldownTimer > 0 ||
@@ -468,6 +457,7 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
   }
 
   void basicAttack() {
+    if (gameRef.introState != IntroState.finished) return;
     if (isParalyzed ||
         isDashing ||
         isParrying ||
@@ -496,6 +486,7 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
   }
 
   void startSpecial() {
+    if (gameRef.introState != IntroState.finished) return;
     if (isParalyzed ||
         isParryFailAnim ||
         isCinematicPhase1 ||
@@ -550,6 +541,7 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
   }
 
   void tentarParry() {
+    if (gameRef.introState != IntroState.finished) return;
     if (isDashing ||
         isParalyzed ||
         isParryFailAnim ||
@@ -579,7 +571,8 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
         isInvincible ||
         damageInvulnerabilityTimer > 0 ||
         isCinematicPhase1 ||
-        isCinematicPhase2)
+        isCinematicPhase2 ||
+        gameRef.introState != IntroState.finished)
       return;
 
     if (isParrying) {
@@ -613,8 +606,11 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
     timeSinceLastHit = 99.0;
     decayTimer = 0.0;
     isHoldingSpecial = false;
+
     if (health <= 0) {
       health = 0;
+      speed = 250;
+      isDashing = false;
       gameRef.pauseEngine();
       _transicaoDeMusicaMorte();
       gameRef.overlays.add('GameOver');
@@ -655,7 +651,6 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
         isCinematicPhase1 = false;
         isCinematicPhase2 = true;
         specialAttackTicker?.reset();
-
         boss?.isFrozen = false;
         cinematicBg?.removeFromParent();
 
@@ -667,7 +662,6 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
         );
 
         double dir = isFacingRight ? 1.0 : -1.0;
-
         gameRef.world.add(
           UltimateSlash(
             position: position.clone(),
@@ -713,6 +707,7 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
       paralyzeTimer -= dt;
       stunTicker?.update(dt);
       starStunTicker?.update(dt);
+      velocity.x = 0;
       if (position.y < groundLevelY)
         velocity.y += gravity * dt;
       else {
@@ -720,7 +715,7 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
         position.y = groundLevelY;
       }
       position += velocity * dt;
-      position.x = position.x.clamp(16.0, 784.0);
+      position.x = position.x.clamp(53.0, 747.0); // <-- CLAMP DAS ÁRVORES AQUI
       return;
     }
 
@@ -848,7 +843,10 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
       }
     }
 
-    if (!joystick.delta.isZero() && !isParrying && !isParryFailAnim) {
+    if (!joystick.delta.isZero() &&
+        !isParrying &&
+        !isParryFailAnim &&
+        gameRef.introState == IntroState.finished) {
       velocity.x = joystick.relativeDelta.x * speed;
       isWalking = true;
       if (joystick.relativeDelta.x < 0)
@@ -874,7 +872,10 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
     }
 
     position += velocity * dt;
-    position.x = position.x.clamp(16.0, 784.0);
+    position.x = position.x.clamp(
+      53.0,
+      747.0,
+    ); // <-- CLAMP DAS ÁRVORES AQUI TAMBÉM
 
     if (isWalking && position.y >= groundLevelY && !isDashing && !isParrying) {
       stepTimer += dt;
