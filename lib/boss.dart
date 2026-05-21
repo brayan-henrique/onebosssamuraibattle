@@ -17,7 +17,7 @@ enum BossPhase { phase1, phase2, phase3 }
 
 enum BossState {
   introWaiting,
-  introFalling, // <--- NOVOS ESTADOS DA CINEMÁTICA
+  introFalling,
   chasing,
   windup,
   swinging,
@@ -356,7 +356,7 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
   double currentHealth = 500.0;
 
   BossPhase currentPhase = BossPhase.phase1;
-  BossState currentState = BossState.introWaiting; // COMEÇA ESPERANDO O PORTÃO!
+  BossState currentState = BossState.introWaiting;
 
   double stateTimer = 0.0;
   late double attackTargetAngle;
@@ -468,8 +468,7 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
     maxHealth = 500.0;
     currentHealth = 500.0;
     currentPhase = BossPhase.phase1;
-    currentState =
-        BossState.chasing; // Restarta direto pro jogo ignorando intro
+    currentState = BossState.chasing;
     stateTimer = 0.0;
     saltosRestantes = 0;
     victoryScreenSpawned = false;
@@ -496,7 +495,6 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
     machucadoTicker?.reset();
   }
 
-  // MÉTODO PARA O MY_GAME ACIONAR A QUEDA
   void startIntroFall() {
     currentState = BossState.introFalling;
   }
@@ -586,16 +584,15 @@ class Boss extends PositionComponent with HasGameRef<MyPixelGame> {
 
     switch (currentState) {
       case BossState.introWaiting:
-        // Apenas esperando o comando do jogo para cair
         break;
       case BossState.introFalling:
-        position.y += 2000 * dt; // Cai muito rápido!
+        // AJUSTADO: Velocidade de queda reduzida de 2000 para 850 para cair mais devagar!
+        position.y += 850 * dt;
         if (position.y >= groundLevelY) {
           position.y = groundLevelY;
           currentState = BossState.chasing;
           stateTimer = 0.0;
 
-          // Impacto! Tremilique, Áudio e FadeIn na HUD!
           try {
             FlameAudio.play('impacto_boss.mp3', volume: 0.6);
           } catch (e) {}

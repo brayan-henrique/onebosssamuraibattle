@@ -33,6 +33,7 @@ class HudConfig {
 
 // ESTADOS DA CINEMÁTICA INICIAL
 enum IntroState {
+  initialShake,
   playingGate,
   waitingForBoss,
   bossFalling,
@@ -393,7 +394,7 @@ class MyPixelGame extends FlameGame with HasCollisionDetection {
   bool bossDamageDisabled = false;
 
   // VARIÁVEIS DA CINEMÁTICA
-  IntroState introState = IntroState.playingGate;
+  IntroState introState = IntroState.initialShake;
   double introTimer = 0.0;
   bool hasVibratedGate = false;
   double hudOpacity = 0.0;
@@ -420,6 +421,7 @@ class MyPixelGame extends FlameGame with HasCollisionDetection {
 
   @override
   Future<void> onLoad() async {
+    pauseEngine();
     camera.viewfinder.anchor = Anchor.topLeft;
 
     try {
@@ -436,7 +438,6 @@ class MyPixelGame extends FlameGame with HasCollisionDetection {
     } catch (e) {}
 
     try {
-      // TODOS os cenários com tamanho interno original 267x120 sendo esticados para 800x360
       world.add(
         SpriteComponent(
           sprite: await loadSprite('ceu_limpo.png'),
@@ -476,13 +477,13 @@ class MyPixelGame extends FlameGame with HasCollisionDetection {
           ..add(RectangleHitbox()),
       );
 
-      // ANIMAÇÃO DO PORTÃO COM O TEXTURESIZE CORRIGIDO (267x120)
+      // ANIMAÇÃO DO PORTÃO
       try {
         final gateAnim = await loadSpriteAnimation(
           'animacao_portao.png',
           SpriteAnimationData.sequenced(
             amount: 7,
-            stepTime: 0.12,
+            stepTime: 0.05,
             textureSize: Vector2(267, 120),
             loop: false,
           ),
@@ -492,23 +493,16 @@ class MyPixelGame extends FlameGame with HasCollisionDetection {
           size: Vector2(800, 360),
           priority: 1,
         );
+
+        // CORREÇÃO: Usamos o atributo "playing" do componente para pausar a animação
+        gateComponent!.playing = false;
+
         world.add(gateComponent!);
       } catch (e) {
         debugPrint(
           'Aviso: animacao_portao.png não carregada ou tamanho incorreto. Pulando animação do portão.',
         );
       }
-
-      camera.viewfinder.add(
-        MoveEffect.by(
-          Vector2(0, 3),
-          EffectController(
-            duration: 0.05,
-            reverseDuration: 0.05,
-            repeatCount: 5,
-          ),
-        ),
-      );
     } catch (e) {}
 
     joystick = JoystickComponent(
@@ -659,14 +653,30 @@ class MyPixelGame extends FlameGame with HasCollisionDetection {
   void update(double dt) {
     super.update(dt);
 
-    if (introState == IntroState.playingGate) {
+    if (introState == IntroState.initialShake) {
+      introTimer += dt;
+      // Tremor apenas horizontal, curto e bem rápido!
+      double shakeX = (Random().nextDouble() - 0.5) * 8.0;
+      camera.viewfinder.position = Vector2(shakeX, 0);
+
+      if (introTimer >= 3.0) {
+        camera.viewfinder.position = Vector2.zero(); // Estabiliza a câmera
+        introTimer = 0.0;
+        introState = IntroState.playingGate;
+        hasVibratedGate = false;
+
+        // CORREÇÃO: Usamos o atributo "playing" do componente para dar o play na animação
+        gateComponent?.playing = true;
+      }
+    } else if (introState == IntroState.playingGate) {
       if (gateComponent != null) {
-        if (gateComponent!.animationTicker?.currentIndex == 6 &&
+        if (gateComponent!.animationTicker?.currentIndex == 5 &&
             !hasVibratedGate) {
-          HapticFeedback.heavyImpact();
+          HapticFeedback.vibrate(); // Vibração mais forte no penúltimo frame
           hasVibratedGate = true;
         }
         if (gateComponent!.animationTicker?.done() == true) {
+          introTimer = 0.0;
           introState = IntroState.waitingForBoss;
         }
       } else {
@@ -674,7 +684,7 @@ class MyPixelGame extends FlameGame with HasCollisionDetection {
       }
     } else if (introState == IntroState.waitingForBoss) {
       introTimer += dt;
-      if (introTimer >= 0.8) {
+      if (introTimer >= 1.3) {
         boss.startIntroFall();
         introState = IntroState.bossFalling;
       }

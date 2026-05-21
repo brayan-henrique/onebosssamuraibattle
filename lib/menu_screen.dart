@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flame/game.dart';
-import 'package:flame/components.dart'; // <-- Import necessário pro Vector2 funcionar aqui!
+import 'package:flame/components.dart';
 import 'package:flame_audio/flame_audio.dart';
 import 'my_game.dart';
 import 'settings_overlay.dart';
@@ -11,17 +11,57 @@ class MenuScreen extends StatefulWidget {
   State<MenuScreen> createState() => _MenuScreenState();
 }
 
-class _MenuScreenState extends State<MenuScreen> {
-  bool _deslizarParaBaixo = false;
+// Adicionamos o TickerProviderStateMixin para controlar a animação
+class _MenuScreenState extends State<MenuScreen> with TickerProviderStateMixin {
   bool _jogoIniciado = false;
   bool _mostrarConfiguracoes = false;
   bool _iniciarComoRemap = false;
+
+  late AnimationController _slideController;
+  late Animation<Offset> _slideAnimation;
+  MyPixelGame? _gameInstance; // Guardamos a instância do jogo aqui
+
+  @override
+  void initState() {
+    super.initState();
+    // Controlador de 1 segundo
+    _slideController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 1),
+    );
+    // Anima a tela descendo (Offset Y vai de 0 para 1, ou seja, 100% da tela para baixo)
+    _slideAnimation = Tween<Offset>(begin: Offset.zero, end: const Offset(0, 1))
+        .animate(
+          CurvedAnimation(parent: _slideController, curve: Curves.easeInOut),
+        );
+  }
+
+  @override
+  void dispose() {
+    _slideController.dispose();
+    super.dispose();
+  }
 
   void _iniciarJogo() {
     setState(() {
       _iniciarComoRemap = false;
       _jogoIniciado = true;
-      _deslizarParaBaixo = true;
+
+      // Cria a instância do jogo
+      _gameInstance = MyPixelGame(
+        startInRemapMode: _iniciarComoRemap,
+        onBackToMenu: () {
+          setState(() {
+            _jogoIniciado = false;
+            _slideController.reverse(); // Menu sobe de volta
+          });
+        },
+      );
+    });
+
+    // Inicia a animação e SÓ DEPOIS despausa o jogo
+    _slideController.forward().then((_) {
+      _gameInstance?.resumeEngine();
     });
   }
 
@@ -29,7 +69,21 @@ class _MenuScreenState extends State<MenuScreen> {
     setState(() {
       _iniciarComoRemap = true;
       _jogoIniciado = true;
-      _deslizarParaBaixo = true;
+
+      _gameInstance = MyPixelGame(
+        startInRemapMode: _iniciarComoRemap,
+        onBackToMenu: () {
+          setState(() {
+            _jogoIniciado = false;
+            _slideController.reverse(); // Menu sobe de volta
+          });
+        },
+      );
+    });
+
+    // Inicia a animação e SÓ DEPOIS despausa o jogo
+    _slideController.forward().then((_) {
+      _gameInstance?.resumeEngine();
     });
   }
 
@@ -41,438 +95,394 @@ class _MenuScreenState extends State<MenuScreen> {
     return Scaffold(
       body: Stack(
         children: [
-          SizedBox(
-            width: screenWidth,
-            height: screenHeight,
-            child: _jogoIniciado
-                ? GameWidget(
-                    game: MyPixelGame(
-                      startInRemapMode: _iniciarComoRemap,
-                      onBackToMenu: () {
-                        setState(() {
-                          _jogoIniciado = false;
-                          _deslizarParaBaixo = false;
-                        });
-                      },
-                    ),
-                    overlayBuilderMap: {
-                      'GameOver': (BuildContext context, MyPixelGame gameRef) {
-                        return GameOverOverlay(gameRef: gameRef);
-                      },
+          // JOGO NO FUNDO
+          if (_jogoIniciado && _gameInstance != null)
+            SizedBox(
+              width: screenWidth,
+              height: screenHeight,
+              child: GameWidget(
+                game: _gameInstance!,
+                overlayBuilderMap: {
+                  'GameOver': (BuildContext context, MyPixelGame gameRef) {
+                    return GameOverOverlay(gameRef: gameRef);
+                  },
 
-                      'PauseMenu': (BuildContext context, MyPixelGame gameRef) {
-                        int cliquesNoSol = 0;
+                  'PauseMenu': (BuildContext context, MyPixelGame gameRef) {
+                    int cliquesNoSol = 0;
 
-                        return Stack(
-                          children: [
-                            Container(color: Colors.black.withOpacity(0.6)),
-
-                            Positioned(
-                              left: 801,
-                              top: 40,
-                              child: GestureDetector(
-                                onTap: () {
-                                  if (!gameRef.cheatUnlocked) {
-                                    cliquesNoSol++;
-                                    if (cliquesNoSol >= 10) {
-                                      gameRef.cheatUnlocked = true;
-                                      ScaffoldMessenger.of(
-                                        context,
-                                      ).showSnackBar(
-                                        const SnackBar(
-                                          content: Text(
-                                            "🟢 HACKS DESBLOQUEADOS!",
-                                            textAlign: TextAlign.center,
-                                            style: TextStyle(
-                                              color: Colors.white,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                          backgroundColor: Colors.purple,
-                                          duration: Duration(seconds: 3),
-                                        ),
-                                      );
-                                    }
-                                  }
-                                },
-                                child: Container(
-                                  width: 80,
-                                  height: 80,
-                                  color: Colors.transparent,
-                                ),
-                              ),
-                            ),
-
-                            Center(
-                              child: Container(
-                                width: 320,
-                                height: 360,
-                                decoration: BoxDecoration(
-                                  color: Colors.grey[900],
-                                  borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(
-                                    color: Colors.white24,
-                                    width: 3,
-                                  ),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withOpacity(0.8),
-                                      blurRadius: 10,
-                                    ),
-                                  ],
-                                ),
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    const Text(
-                                      'JOGO PAUSADO',
-                                      style: TextStyle(
-                                        fontSize: 26,
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.bold,
-                                        letterSpacing: 2,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 30),
-
-                                    SizedBox(
-                                      width: 220,
-                                      height: 45,
-                                      child: ElevatedButton(
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: Colors.green,
-                                          foregroundColor: Colors.white,
-                                        ),
-                                        onPressed: () {
-                                          gameRef.overlays.remove('PauseMenu');
-                                          gameRef.resumeEngine();
-                                          FlameAudio.bgm.resume();
-                                        },
-                                        child: const Text(
-                                          'RETOMAR',
-                                          style: TextStyle(
-                                            fontSize: 18,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 15),
-
-                                    SizedBox(
-                                      width: 220,
-                                      height: 45,
-                                      child: ElevatedButton(
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: Colors.orange[800],
-                                          foregroundColor: Colors.white,
-                                        ),
-                                        onPressed: () {
-                                          gameRef.overlays.remove('PauseMenu');
-                                          gameRef.resetGame();
-                                          FlameAudio.bgm.stop();
-                                          FlameAudio.bgm.play(
-                                            'musica_padrao.mp3',
-                                            volume: AudioManager.bgm,
-                                          );
-                                        },
-                                        child: const Text(
-                                          'RECOMEÇAR',
-                                          style: TextStyle(
-                                            fontSize: 18,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 15),
-
-                                    SizedBox(
-                                      width: 220,
-                                      height: 45,
-                                      child: ElevatedButton(
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: Colors.grey[700],
-                                          foregroundColor: Colors.white,
-                                        ),
-                                        onPressed: () {
-                                          gameRef.overlays.remove('PauseMenu');
-                                          gameRef.overlays.add('SettingsMenu');
-                                        },
-                                        child: const Text(
-                                          'CONFIGURAÇÕES',
-                                          style: TextStyle(
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 15),
-
-                                    SizedBox(
-                                      width: 220,
-                                      height: 45,
-                                      child: ElevatedButton(
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: Colors.red[800],
-                                          foregroundColor: Colors.white,
-                                        ),
-                                        onPressed: () {
-                                          gameRef.overlays.remove('PauseMenu');
-                                          FlameAudio.bgm.stop();
-                                          gameRef.resetGame();
-                                          gameRef.onBackToMenu?.call();
-                                        },
-                                        child: const Text(
-                                          'SAIR',
-                                          style: TextStyle(
-                                            fontSize: 18,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
-                        );
-                      },
-
-                      'SettingsMenu':
-                          (BuildContext context, MyPixelGame gameRef) {
-                            return SettingsOverlay(
-                              gameRef: gameRef,
-                              onClose: () {
-                                gameRef.overlays.remove('SettingsMenu');
-                                gameRef.overlays.add('PauseMenu');
-                              },
-                              onRemap: () {
-                                gameRef.overlays.remove('SettingsMenu');
-                                gameRef.isEditingHUD = true;
-                                gameRef.resumeEngine();
-                                FlameAudio.bgm.pause();
-                                gameRef.overlays.add('RemapHUD');
-                              },
-                            );
-                          },
-
-                      'RemapHUD': (BuildContext context, MyPixelGame gameRef) {
-                        return RemapOverlay(gameRef: gameRef);
-                      },
-
-                      'CheatMenu': (BuildContext context, MyPixelGame gameRef) {
-                        return StatefulBuilder(
-                          builder: (context, setStateOverlay) {
-                            return Container(
-                              color: Colors.purple.withOpacity(0.4),
-                              child: Center(
-                                child: Container(
-                                  width: 350,
-                                  height: 350,
-                                  decoration: BoxDecoration(
-                                    color: Colors.grey[900],
-                                    borderRadius: BorderRadius.circular(20),
-                                    border: Border.all(
-                                      color: Colors.yellowAccent,
-                                      width: 3,
-                                    ),
-                                  ),
-                                  child: Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      const Text(
-                                        'DEVELOPER HACKS',
+                    return Stack(
+                      children: [
+                        Container(color: Colors.black.withOpacity(0.6)),
+                        Positioned(
+                          left: 801,
+                          top: 40,
+                          child: GestureDetector(
+                            onTap: () {
+                              if (!gameRef.cheatUnlocked) {
+                                cliquesNoSol++;
+                                if (cliquesNoSol >= 10) {
+                                  gameRef.cheatUnlocked = true;
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        "🟢 HACKS DESBLOQUEADOS!",
+                                        textAlign: TextAlign.center,
                                         style: TextStyle(
-                                          fontSize: 24,
-                                          color: Colors.yellowAccent,
+                                          color: Colors.white,
                                           fontWeight: FontWeight.bold,
                                         ),
                                       ),
-                                      const SizedBox(height: 20),
-                                      Padding(
-                                        padding: const EdgeInsets.symmetric(
-                                          vertical: 5,
-                                        ),
-                                        child: SizedBox(
-                                          width: 250,
-                                          height: 40,
-                                          child: ElevatedButton(
-                                            style: ElevatedButton.styleFrom(
-                                              backgroundColor:
-                                                  gameRef
-                                                      .player
-                                                      .isInvincibleCheat
-                                                  ? Colors.green
-                                                  : Colors.grey,
-                                            ),
-                                            onPressed: () {
-                                              setStateOverlay(() {
-                                                gameRef
-                                                        .player
-                                                        .isInvincibleCheat =
-                                                    !gameRef
-                                                        .player
-                                                        .isInvincibleCheat;
-                                              });
-                                            },
-                                            child: Text(
+                                      backgroundColor: Colors.purple,
+                                      duration: Duration(seconds: 3),
+                                    ),
+                                  );
+                                }
+                              }
+                            },
+                            child: Container(
+                              width: 80,
+                              height: 80,
+                              color: Colors.transparent,
+                            ),
+                          ),
+                        ),
+                        Center(
+                          child: Container(
+                            width: 320,
+                            height: 360,
+                            decoration: BoxDecoration(
+                              color: Colors.grey[900],
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: Colors.white24,
+                                width: 3,
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.8),
+                                  blurRadius: 10,
+                                ),
+                              ],
+                            ),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Text(
+                                  'JOGO PAUSADO',
+                                  style: TextStyle(
+                                    fontSize: 26,
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    letterSpacing: 2,
+                                  ),
+                                ),
+                                const SizedBox(height: 30),
+                                SizedBox(
+                                  width: 220,
+                                  height: 45,
+                                  child: ElevatedButton(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.green,
+                                      foregroundColor: Colors.white,
+                                    ),
+                                    onPressed: () {
+                                      gameRef.overlays.remove('PauseMenu');
+                                      gameRef.resumeEngine();
+                                      FlameAudio.bgm.resume();
+                                    },
+                                    child: const Text(
+                                      'RETOMAR',
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 15),
+                                SizedBox(
+                                  width: 220,
+                                  height: 45,
+                                  child: ElevatedButton(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.orange[800],
+                                      foregroundColor: Colors.white,
+                                    ),
+                                    onPressed: () {
+                                      gameRef.overlays.remove('PauseMenu');
+                                      gameRef.resetGame();
+                                      FlameAudio.bgm.stop();
+                                      FlameAudio.bgm.play(
+                                        'musica_padrao.mp3',
+                                        volume: AudioManager.bgm,
+                                      );
+                                    },
+                                    child: const Text(
+                                      'RECOMEÇAR',
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 15),
+                                SizedBox(
+                                  width: 220,
+                                  height: 45,
+                                  child: ElevatedButton(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.grey[700],
+                                      foregroundColor: Colors.white,
+                                    ),
+                                    onPressed: () {
+                                      gameRef.overlays.remove('PauseMenu');
+                                      gameRef.overlays.add('SettingsMenu');
+                                    },
+                                    child: const Text(
+                                      'CONFIGURAÇÕES',
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 15),
+                                SizedBox(
+                                  width: 220,
+                                  height: 45,
+                                  child: ElevatedButton(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.red[800],
+                                      foregroundColor: Colors.white,
+                                    ),
+                                    onPressed: () {
+                                      gameRef.overlays.remove('PauseMenu');
+                                      FlameAudio.bgm.stop();
+                                      gameRef.resetGame();
+                                      gameRef.onBackToMenu?.call();
+                                    },
+                                    child: const Text(
+                                      'SAIR',
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+
+                  'SettingsMenu': (BuildContext context, MyPixelGame gameRef) {
+                    return SettingsOverlay(
+                      gameRef: gameRef,
+                      onClose: () {
+                        gameRef.overlays.remove('SettingsMenu');
+                        gameRef.overlays.add('PauseMenu');
+                      },
+                      onRemap: () {
+                        gameRef.overlays.remove('SettingsMenu');
+                        gameRef.isEditingHUD = true;
+                        gameRef.resumeEngine();
+                        FlameAudio.bgm.pause();
+                        gameRef.overlays.add('RemapHUD');
+                      },
+                    );
+                  },
+
+                  'RemapHUD': (BuildContext context, MyPixelGame gameRef) {
+                    return RemapOverlay(gameRef: gameRef);
+                  },
+
+                  'CheatMenu': (BuildContext context, MyPixelGame gameRef) {
+                    return StatefulBuilder(
+                      builder: (context, setStateOverlay) {
+                        return Container(
+                          color: Colors.purple.withOpacity(0.4),
+                          child: Center(
+                            child: Container(
+                              width: 350,
+                              height: 350,
+                              decoration: BoxDecoration(
+                                color: Colors.grey[900],
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: Colors.yellowAccent,
+                                  width: 3,
+                                ),
+                              ),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Text(
+                                    'DEVELOPER HACKS',
+                                    style: TextStyle(
+                                      fontSize: 24,
+                                      color: Colors.yellowAccent,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 20),
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 5,
+                                    ),
+                                    child: SizedBox(
+                                      width: 250,
+                                      height: 40,
+                                      child: ElevatedButton(
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor:
                                               gameRef.player.isInvincibleCheat
-                                                  ? "GOD MODE: ON"
-                                                  : "GOD MODE: OFF",
-                                              style: const TextStyle(
-                                                color: Colors.white,
-                                              ),
-                                            ),
-                                          ),
+                                              ? Colors.green
+                                              : Colors.grey,
                                         ),
-                                      ),
-                                      Padding(
-                                        padding: const EdgeInsets.symmetric(
-                                          vertical: 5,
-                                        ),
-                                        child: SizedBox(
-                                          width: 250,
-                                          height: 40,
-                                          child: ElevatedButton(
-                                            style: ElevatedButton.styleFrom(
-                                              backgroundColor:
-                                                  gameRef.bossDamageDisabled
-                                                  ? Colors.red
-                                                  : Colors.grey,
-                                            ),
-                                            onPressed: () {
-                                              setStateOverlay(() {
-                                                gameRef.bossDamageDisabled =
-                                                    !gameRef.bossDamageDisabled;
-                                              });
-                                            },
-                                            child: Text(
-                                              gameRef.bossDamageDisabled
-                                                  ? "BOSS DAMAGE: OFF"
-                                                  : "BOSS DAMAGE: ON",
-                                              style: const TextStyle(
-                                                color: Colors.white,
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                      Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.center,
-                                        children: [
-                                          const Text(
-                                            "DANO: ",
-                                            style: TextStyle(
-                                              color: Colors.white,
-                                            ),
-                                          ),
-                                          IconButton(
-                                            icon: const Icon(
-                                              Icons.remove,
-                                              color: Colors.white,
-                                            ),
-                                            onPressed: () =>
-                                                setStateOverlay(() {
-                                                  gameRef
-                                                          .player
-                                                          .damageMultiplier -=
-                                                      1;
-                                                  if (gameRef
-                                                          .player
-                                                          .damageMultiplier <
-                                                      1) {
-                                                    gameRef
-                                                            .player
-                                                            .damageMultiplier =
-                                                        1;
-                                                  }
-                                                }),
-                                          ),
-                                          Text(
-                                            "${gameRef.player.damageMultiplier.toInt()}x",
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 20,
-                                            ),
-                                          ),
-                                          IconButton(
-                                            icon: const Icon(
-                                              Icons.add,
-                                              color: Colors.white,
-                                            ),
-                                            onPressed: () =>
-                                                setStateOverlay(() {
-                                                  gameRef
-                                                          .player
-                                                          .damageMultiplier +=
-                                                      1;
-                                                }),
-                                          ),
-                                        ],
-                                      ),
-                                      Padding(
-                                        padding: const EdgeInsets.symmetric(
-                                          vertical: 5,
-                                        ),
-                                        child: SizedBox(
-                                          width: 250,
-                                          height: 40,
-                                          child: ElevatedButton(
-                                            style: ElevatedButton.styleFrom(
-                                              backgroundColor: Colors.blue,
-                                            ),
-                                            onPressed: () {
-                                              setStateOverlay(() {
-                                                gameRef.player.specialMeter =
-                                                    100.0;
-                                              });
-                                            },
-                                            child: const Text(
-                                              "RECARREGAR ESPECIAL",
-                                              style: TextStyle(
-                                                color: Colors.white,
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 10),
-                                      TextButton(
                                         onPressed: () {
-                                          gameRef.overlays.remove('CheatMenu');
-                                          gameRef.resumeEngine();
+                                          setStateOverlay(() {
+                                            gameRef.player.isInvincibleCheat =
+                                                !gameRef
+                                                    .player
+                                                    .isInvincibleCheat;
+                                          });
                                         },
-                                        child: const Text(
-                                          "VOLTAR AO JOGO",
-                                          style: TextStyle(
-                                            color: Colors.yellowAccent,
+                                        child: Text(
+                                          gameRef.player.isInvincibleCheat
+                                              ? "GOD MODE: ON"
+                                              : "GOD MODE: OFF",
+                                          style: const TextStyle(
+                                            color: Colors.white,
                                           ),
                                         ),
+                                      ),
+                                    ),
+                                  ),
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 5,
+                                    ),
+                                    child: SizedBox(
+                                      width: 250,
+                                      height: 40,
+                                      child: ElevatedButton(
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor:
+                                              gameRef.bossDamageDisabled
+                                              ? Colors.red
+                                              : Colors.grey,
+                                        ),
+                                        onPressed: () {
+                                          setStateOverlay(() {
+                                            gameRef.bossDamageDisabled =
+                                                !gameRef.bossDamageDisabled;
+                                          });
+                                        },
+                                        child: Text(
+                                          gameRef.bossDamageDisabled
+                                              ? "BOSS DAMAGE: OFF"
+                                              : "BOSS DAMAGE: ON",
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      const Text(
+                                        "DANO: ",
+                                        style: TextStyle(color: Colors.white),
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(
+                                          Icons.remove,
+                                          color: Colors.white,
+                                        ),
+                                        onPressed: () => setStateOverlay(() {
+                                          gameRef.player.damageMultiplier -= 1;
+                                          if (gameRef.player.damageMultiplier <
+                                              1) {
+                                            gameRef.player.damageMultiplier = 1;
+                                          }
+                                        }),
+                                      ),
+                                      Text(
+                                        "${gameRef.player.damageMultiplier.toInt()}x",
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 20,
+                                        ),
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(
+                                          Icons.add,
+                                          color: Colors.white,
+                                        ),
+                                        onPressed: () => setStateOverlay(() {
+                                          gameRef.player.damageMultiplier += 1;
+                                        }),
                                       ),
                                     ],
                                   ),
-                                ),
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 5,
+                                    ),
+                                    child: SizedBox(
+                                      width: 250,
+                                      height: 40,
+                                      child: ElevatedButton(
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: Colors.blue,
+                                        ),
+                                        onPressed: () {
+                                          setStateOverlay(() {
+                                            gameRef.player.specialMeter = 100.0;
+                                          });
+                                        },
+                                        child: const Text(
+                                          "RECARREGAR ESPECIAL",
+                                          style: TextStyle(color: Colors.white),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  TextButton(
+                                    onPressed: () {
+                                      gameRef.overlays.remove('CheatMenu');
+                                      gameRef.resumeEngine();
+                                    },
+                                    child: const Text(
+                                      "VOLTAR AO JOGO",
+                                      style: TextStyle(
+                                        color: Colors.yellowAccent,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
-                            );
-                          },
+                            ),
+                          ),
                         );
                       },
-                    },
-                  )
-                : Container(color: Colors.black),
-          ),
+                    );
+                  },
+                },
+              ),
+            ),
 
-          AnimatedPositioned(
-            duration: const Duration(seconds: 1),
-            curve: Curves.easeInOut,
-            top: _deslizarParaBaixo ? screenHeight : 0,
-            bottom: _deslizarParaBaixo ? -screenHeight : 0,
-            left: 0,
-            right: 0,
+          // TELA DO MENU (DESLIZANDO COM CONTROLLER)
+          SlideTransition(
+            position: _slideAnimation,
             child: Container(
               width: screenWidth,
               height: screenHeight,
@@ -576,7 +586,7 @@ class _MenuScreenState extends State<MenuScreen> {
 }
 
 // ==========================================
-// OVERLAY DO REMAPEAMENTO (AQUI OCORRE A MÁGICA)
+// OVERLAY DO REMAPEAMENTO
 // ==========================================
 class RemapOverlay extends StatelessWidget {
   final MyPixelGame gameRef;
@@ -606,7 +616,6 @@ class RemapOverlay extends StatelessWidget {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // BOTAO DE RESETAR (PADRÃO)
                 ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.grey[800],
@@ -624,13 +633,8 @@ class RemapOverlay extends StatelessWidget {
                     ),
                   ),
                   onPressed: () {
-                    // Reseta os valores na memória global
                     HudConfig.resetToDefault();
-
-                    // Coloca o joystick no lugar
                     gameRef.joystick.position = HudConfig.joystickPos.clone();
-
-                    // Pega todos os botões e devolve para as coordenadas originais lidas da memória
                     final botoes = gameRef.camera.viewport.children
                         .whereType<RemappableButton>();
                     for (var botao in botoes) {
@@ -648,8 +652,6 @@ class RemapOverlay extends StatelessWidget {
                   },
                 ),
                 const SizedBox(width: 40),
-
-                // BOTAO DE SALVAR (APLICAR)
                 ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.green,
@@ -667,7 +669,6 @@ class RemapOverlay extends StatelessWidget {
                     ),
                   ),
                   onPressed: () {
-                    // 1. SALVA AS POSIÇÕES NOVAS NA MEMÓRIA GLOBAL!
                     HudConfig.joystickPos = gameRef.joystick.position.clone();
                     final botoes = gameRef.camera.viewport.children
                         .whereType<RemappableButton>();
@@ -684,7 +685,6 @@ class RemapOverlay extends StatelessWidget {
                         HudConfig.specialBtnPos = botao.position.clone();
                     }
 
-                    // 2. FECHA O MENU DE EDIÇÃO E VOLTA
                     gameRef.isEditingHUD = false;
                     gameRef.overlays.remove('RemapHUD');
 
