@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'package:gamepads/gamepads.dart';
 import 'package:flame/components.dart';
 import 'package:flame/sprite.dart';
 import 'package:flame_audio/flame_audio.dart';
@@ -208,6 +210,13 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
   bool _hasVibratedForCinematic = false;
   CinematicBackground? cinematicBg;
 
+  // ==========================================
+  // VARIÁVEIS DO CONTROLE FÍSICO / GAMEPAD
+  // ==========================================
+  StreamSubscription<GamepadEvent>? _gamepadSub;
+  double gamepadAnalogX = 0.0;
+  bool _usandoControleFisico = false;
+
   SpriteAnimationTicker? walkTicker;
   SpriteAnimationTicker? idleTicker;
   SpriteAnimationTicker? jumpTicker;
@@ -383,8 +392,91 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
         maxPlayers: 3,
       );
     } catch (e) {}
-    position = Vector2(108, groundLevelY); // <-- NASCE A 108 AGORA!
+    position = Vector2(108, groundLevelY);
     stepTimer = stepInterval;
+
+    // ====================================================
+    // INICIANDO ESCUTA DE TECLADO / CONTROLE BLUETOOTH
+    // ====================================================
+    HardwareKeyboard.instance.addHandler(_handleKeyEvent);
+
+    try {
+      _gamepadSub = Gamepads.events.listen((GamepadEvent event) {
+        // Some com os botões da tela caso ele use o controle físico
+        if (!_usandoControleFisico) _esconderHudVirtual();
+
+        if (event.type == KeyType.analog) {
+          // Detecta o analógico esquerdo (eixo X)
+          if (event.key.toLowerCase().contains('left.x') ||
+              event.key.toLowerCase().contains('joystick.x')) {
+            // Deadzone (zona morta) de 0.2 para evitar que o personagem ande sozinho por defeito no analógico
+            if (event.value.abs() > 0.2)
+              gamepadAnalogX = event.value;
+            else
+              gamepadAnalogX = 0.0;
+          }
+        } else if (event.type == KeyType.button) {
+          // Detecta se a biblioteca passar o D-PAD como botão
+          if (event.key.toLowerCase().contains('dpad.left'))
+            gamepadAnalogX = event.value > 0 ? -1.0 : 0.0;
+          else if (event.key.toLowerCase().contains('dpad.right'))
+            gamepadAnalogX = event.value > 0 ? 1.0 : 0.0;
+        }
+      });
+    } catch (e) {
+      debugPrint('Gamepads erro: $e');
+    }
+  }
+
+  // ==========================================
+  // FUNÇÕES DO CONTROLE E REMOÇÃO DA HUD
+  // ==========================================
+  void _esconderHudVirtual() {
+    _usandoControleFisico = true;
+    if (gameRef.joystick.parent != null) gameRef.joystick.removeFromParent();
+    for (var btn in gameRef.hudButtons) {
+      if (btn.parent != null) btn.removeFromParent();
+    }
+    // Esconde o botão de Pause nativo da tela também!
+    if (gameRef.pauseButton.parent != null)
+      gameRef.pauseButton.removeFromParent();
+  }
+
+  bool _handleKeyEvent(KeyEvent event) {
+    if (!_usandoControleFisico) _esconderHudVirtual();
+
+    if (event is KeyDownEvent) {
+      if (event.logicalKey == ControllerConfig.attackKey)
+        basicAttack();
+      else if (event.logicalKey == ControllerConfig.jumpKey)
+        jump();
+      else if (event.logicalKey == ControllerConfig.dashKey)
+        dash();
+      else if (event.logicalKey == ControllerConfig.parryKey)
+        tentarParry();
+      else if (event.logicalKey == ControllerConfig.specialKey)
+        startSpecial();
+      // Abre o PauseMenu caso aperte Start ou Escape no teclado
+      else if (event.logicalKey == LogicalKeyboardKey.gameButtonStart ||
+          event.logicalKey == LogicalKeyboardKey.escape) {
+        if (!gameRef.overlays.isActive('PauseMenu')) {
+          gameRef.pauseEngine();
+          FlameAudio.bgm.pause();
+          gameRef.overlays.add('PauseMenu');
+        }
+      }
+    } else if (event is KeyUpEvent) {
+      if (event.logicalKey == ControllerConfig.specialKey) releaseSpecial();
+    }
+    return false; // Retorna false para permitir propagação de eventos
+  }
+
+  @override
+  void onRemove() {
+    // Desliga a escuta quando o Player é destruído para evitar vazamento de memória!
+    HardwareKeyboard.instance.removeHandler(_handleKeyEvent);
+    _gamepadSub?.cancel();
+    super.onRemove();
   }
 
   void _cancelActions() {
@@ -504,27 +596,21 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
       if (specialMeter >= 100.0 && boss != null) {
         _cancelActions();
         specialMeter = 0.0;
-
         isCinematicPhase1 = true;
         _hasVibratedForCinematic = false;
         specialStartTicker?.reset();
-
         boss!.isFrozen = true;
-
         cinematicBg = CinematicBackground();
         gameRef.world.add(cinematicBg!);
 
         double zoomLevel = 1.6;
-
         double visibleWidth = 800 / zoomLevel;
         double visibleHeight = 360 / zoomLevel;
-
         double targetX = position.x - (visibleWidth / 2);
         double targetY = position.y - (visibleHeight / 2);
 
         targetX = targetX.clamp(0.0, 800.0 - visibleWidth);
         targetY = targetY.clamp(0.0, 360.0 - visibleHeight);
-
         Vector2 cameraTarget = Vector2(targetX, targetY);
 
         gameRef.camera.viewfinder.add(
@@ -641,26 +727,22 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
 
     if (isCinematicPhase1) {
       specialStartTicker?.update(dt);
-
       if (specialStartTicker!.currentIndex == 8 && !_hasVibratedForCinematic) {
         HapticFeedback.heavyImpact();
         _hasVibratedForCinematic = true;
       }
-
       if (specialStartTicker?.done() == true) {
         isCinematicPhase1 = false;
         isCinematicPhase2 = true;
         specialAttackTicker?.reset();
         boss?.isFrozen = false;
         cinematicBg?.removeFromParent();
-
         gameRef.camera.viewfinder.add(
           ScaleEffect.to(Vector2.all(1.0), EffectController(duration: 0.2)),
         );
         gameRef.camera.viewfinder.add(
           MoveEffect.to(Vector2(0, 0), EffectController(duration: 0.2)),
         );
-
         double dir = isFacingRight ? 1.0 : -1.0;
         gameRef.world.add(
           UltimateSlash(
@@ -715,7 +797,7 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
         position.y = groundLevelY;
       }
       position += velocity * dt;
-      position.x = position.x.clamp(53.0, 747.0); // <-- CLAMP DAS ÁRVORES AQUI
+      position.x = position.x.clamp(53.0, 747.0);
       return;
     }
 
@@ -843,15 +925,40 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
       }
     }
 
-    if (!joystick.delta.isZero() &&
+    // =========================================================
+    // INTEGRAÇÃO DOS 3 MÉTODOS DE CONTROLE (Touch / Analógico / Teclas)
+    // =========================================================
+    double dirX = 0.0;
+
+    // 1. O Joystick de Toque tem prioridade
+    if (!joystick.delta.isZero()) {
+      dirX = joystick.relativeDelta.x;
+    }
+    // 2. Se o Joystick não tá sendo usado, lê o Analógico do Bluetooth
+    else if (gamepadAnalogX != 0.0) {
+      dirX = gamepadAnalogX;
+    }
+    // 3. Se nenhum dos dois foi tocado, verifica o D-Pad nativo / Setas do teclado
+    else {
+      final keys = HardwareKeyboard.instance.logicalKeysPressed;
+      // CORREÇÃO: Utilizando apenas as setas nativas que o Android/iOS mapeiam sozinhas!
+      if (keys.contains(LogicalKeyboardKey.arrowLeft)) {
+        dirX = -1.0;
+      } else if (keys.contains(LogicalKeyboardKey.arrowRight)) {
+        dirX = 1.0;
+      }
+    }
+
+    // Movimentação do Personagem
+    if (dirX != 0.0 &&
         !isParrying &&
         !isParryFailAnim &&
         gameRef.introState == IntroState.finished) {
-      velocity.x = joystick.relativeDelta.x * speed;
+      velocity.x = dirX * speed;
       isWalking = true;
-      if (joystick.relativeDelta.x < 0)
+      if (dirX < 0)
         isFacingRight = false;
-      else if (joystick.relativeDelta.x > 0)
+      else if (dirX > 0)
         isFacingRight = true;
     } else {
       if (isDashing)
@@ -872,10 +979,7 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
     }
 
     position += velocity * dt;
-    position.x = position.x.clamp(
-      53.0,
-      747.0,
-    ); // <-- CLAMP DAS ÁRVORES AQUI TAMBÉM
+    position.x = position.x.clamp(53.0, 747.0);
 
     if (isWalking && position.y >= groundLevelY && !isDashing && !isParrying) {
       stepTimer += dt;
@@ -947,19 +1051,19 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
           size: starSize,
         );
       }
-    } else if (isParryFailAnim && parryFailTicker != null)
+    } else if (isParryFailAnim && parryFailTicker != null) {
       parryFailTicker!.getSprite().render(
         canvas,
         size: size,
         overridePaint: piscaDano,
       );
-    else if (isParrySuccessAnim && parrySuccessTicker != null)
+    } else if (isParrySuccessAnim && parrySuccessTicker != null) {
       parrySuccessTicker!.getSprite().render(
         canvas,
         size: size,
         overridePaint: piscaDano,
       );
-    else if (isAttacking) {
+    } else if (isAttacking) {
       if (currentAttackStep == 1 && attack1Ticker != null)
         attack1Ticker!.getSprite().render(
           canvas,
@@ -991,13 +1095,13 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
           size: size,
           overridePaint: piscaDano,
         );
-    } else if (isJumping && jumpTicker != null)
+    } else if (isJumping && jumpTicker != null) {
       jumpTicker!.getSprite().render(
         canvas,
         size: size,
         overridePaint: piscaDano,
       );
-    else {
+    } else {
       if (isWalking && walkTicker != null)
         walkTicker!.getSprite().render(
           canvas,
@@ -1013,7 +1117,6 @@ class Player extends PositionComponent with HasGameRef<MyPixelGame> {
       else
         canvas.drawRect(size.toRect(), Paint()..color = Colors.red);
     }
-
     if (!isFacingRight) canvas.restore();
   }
 }

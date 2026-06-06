@@ -12,8 +12,9 @@ dependencies:
 
   cupertino_icons: ^1.0.8
   flame: ^1.35.1
-  flame_audio: 2.11.14
+  flame_audio: ^2.12.1
   shared_preferences: ^2.5.5
+  gamepads: ^0.1.10+2
 
 dev_dependencies:
   flutter_test:
