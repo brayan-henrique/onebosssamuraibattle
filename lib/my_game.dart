@@ -1,4 +1,6 @@
 import 'dart:math';
+import 'dart:async';
+import 'package:gamepads/gamepads.dart';
 import 'package:flame/game.dart';
 import 'package:flame/components.dart';
 import 'package:flame/input.dart';
@@ -31,7 +33,6 @@ class HudConfig {
   }
 }
 
-// ESTADOS DA CINEMÁTICA INICIAL
 enum IntroState {
   initialShake,
   playingGate,
@@ -85,6 +86,12 @@ class RemappableButton extends PositionComponent
   @override
   void onTapDown(TapDownEvent event) {
     if (gameRef.isEditingHUD) return;
+
+    if (gameRef.isUsingController) {
+      gameRef.isUsingController = false;
+      gameRef.atualizarOpacidadeHUD();
+    }
+
     scale.setAll(0.9);
     onPressed();
   }
@@ -129,7 +136,6 @@ class JoystickDragHandle extends PositionComponent with DragCallbacks {
   final JoystickComponent target;
   JoystickDragHandle(this.target)
     : super(size: Vector2(120, 120), anchor: Anchor.center);
-
   @override
   void render(Canvas canvas) {
     super.render(canvas);
@@ -169,7 +175,6 @@ class BossHealthBar extends PositionComponent with HasGameRef<MyPixelGame> {
   final Boss boss;
   BossHealthBar(this.boss)
     : super(position: Vector2(200, 20), size: Vector2(400, 20));
-
   @override
   void render(Canvas canvas) {
     super.render(canvas);
@@ -178,34 +183,31 @@ class BossHealthBar extends PositionComponent with HasGameRef<MyPixelGame> {
       Paint()..color = Colors.grey.withOpacity(0.6 * gameRef.hudOpacity),
     );
     double healthRatio = boss.currentHealth / boss.maxHealth;
-    if (healthRatio > 0) {
+    if (healthRatio > 0)
       canvas.drawRect(
         Rect.fromLTWH(0, 0, size.x * healthRatio, size.y),
         Paint()..color = Colors.red.withOpacity(gameRef.hudOpacity),
       );
-    }
   }
 }
 
 class PlayerHealthBar extends PositionComponent with HasGameRef<MyPixelGame> {
   final Player player;
-  Sprite? gotaCheia;
-  Sprite? gotaVazia;
+  Sprite? gotaCheia, gotaVazia, fundoHud;
   SpriteAnimationTicker? gotaMetadeTicker;
-  Sprite? fundoHud;
 
   final Vector2 tamanhoFundo = Vector2(258, 58);
-  final double posGotasX = 60.0;
-  final double posGotasY = 5.0;
-  final double espacamentoGotas = 36.0;
+  final double posGotasX = 60.0,
+      posGotasY = 5.0,
+      espacamentoGotas = 36.0,
+      posBarraX = 52.0,
+      posBarraY = 40.0,
+      larguraBarra = 200.0,
+      alturaBarra = 12.0,
+      posTextosX = 5.0,
+      posHitsY = 75.0,
+      posComboY = 105.0;
   final Vector2 tamanhoGota = Vector2.all(32);
-  final double posBarraX = 52.0;
-  final double posBarraY = 40.0;
-  final double larguraBarra = 200.0;
-  final double alturaBarra = 12.0;
-  final double posTextosX = 5.0;
-  final double posHitsY = 75.0;
-  final double posComboY = 105.0;
 
   double shakeTimer = 0.0;
   PlayerHealthBar(this.player)
@@ -239,27 +241,25 @@ class PlayerHealthBar extends PositionComponent with HasGameRef<MyPixelGame> {
   void update(double dt) {
     super.update(dt);
     gotaMetadeTicker?.update(dt);
-    if (player.specialMeter >= 100.0) {
+    if (player.specialMeter >= 100.0)
       shakeTimer += dt;
-    } else {
+    else
       shakeTimer = 0.0;
-    }
   }
 
   @override
   void render(Canvas canvas) {
     if (gameRef.hudOpacity <= 0) return;
     canvas.save();
-
     if (player.specialMeter >= 100.0) {
-      double offsetX = (Random().nextDouble() - 0.5) * 5;
-      double offsetY = (Random().nextDouble() - 0.5) * 5;
-      canvas.translate(offsetX, offsetY);
+      canvas.translate(
+        (Random().nextDouble() - 0.5) * 5,
+        (Random().nextDouble() - 0.5) * 5,
+      );
     }
-
     super.render(canvas);
 
-    if (fundoHud != null) {
+    if (fundoHud != null)
       fundoHud!.render(
         canvas,
         position: Vector2.zero(),
@@ -267,11 +267,9 @@ class PlayerHealthBar extends PositionComponent with HasGameRef<MyPixelGame> {
         overridePaint: Paint()
           ..color = Colors.white.withOpacity(gameRef.hudOpacity),
       );
-    }
 
     for (int i = 0; i < 5; i++) {
-      double xAtual = posGotasX + (i * espacamentoGotas);
-      Vector2 pos = Vector2(xAtual, posGotasY);
+      Vector2 pos = Vector2(posGotasX + (i * espacamentoGotas), posGotasY);
       if (player.health >= i + 1) {
         if (gotaCheia != null)
           gotaCheia!.render(
@@ -376,7 +374,6 @@ class PlayerHealthBar extends PositionComponent with HasGameRef<MyPixelGame> {
         'Combo ${player.comboMultiplier}x',
         Vector2(posTextosX, posComboY),
       );
-
     canvas.restore();
   }
 }
@@ -393,7 +390,6 @@ class MyPixelGame extends FlameGame with HasCollisionDetection {
   bool cheatUnlocked = false;
   bool bossDamageDisabled = false;
 
-  // VARIÁVEIS DA CINEMÁTICA
   IntroState introState = IntroState.initialShake;
   double introTimer = 0.0;
   bool hasVibratedGate = false;
@@ -402,6 +398,14 @@ class MyPixelGame extends FlameGame with HasCollisionDetection {
 
   List<RemappableButton> hudButtons = [];
   late HudButtonComponent pauseButton;
+
+  // ==========================================
+  // O HUB DE INPUT (SOMENTE GAMEPAD AGORA)
+  // ==========================================
+  StreamSubscription<GamepadEvent>? _gamepadSub;
+  double gamepadAnalogX = 0.0;
+  double inputX = 0.0;
+  bool isUsingController = false;
 
   bool _isEditingHUD = false;
   bool get isEditingHUD => _isEditingHUD;
@@ -477,7 +481,6 @@ class MyPixelGame extends FlameGame with HasCollisionDetection {
           ..add(RectangleHitbox()),
       );
 
-      // ANIMAÇÃO DO PORTÃO
       try {
         final gateAnim = await loadSpriteAnimation(
           'animacao_portao.png',
@@ -493,16 +496,9 @@ class MyPixelGame extends FlameGame with HasCollisionDetection {
           size: Vector2(800, 360),
           priority: 1,
         );
-
-        // CORREÇÃO: Usamos o atributo "playing" do componente para pausar a animação
         gateComponent!.playing = false;
-
         world.add(gateComponent!);
-      } catch (e) {
-        debugPrint(
-          'Aviso: animacao_portao.png não carregada ou tamanho incorreto. Pulando animação do portão.',
-        );
-      }
+      } catch (e) {}
     } catch (e) {}
 
     joystick = JoystickComponent(
@@ -570,6 +566,10 @@ class MyPixelGame extends FlameGame with HasCollisionDetection {
       margin: const EdgeInsets.only(top: 20, right: 20),
       onPressed: () {
         if (isEditingHUD) return;
+        if (isUsingController) {
+          isUsingController = false;
+          atualizarOpacidadeHUD();
+        }
         pauseEngine();
         FlameAudio.bgm.pause();
         overlays.add('PauseMenu');
@@ -644,35 +644,109 @@ class MyPixelGame extends FlameGame with HasCollisionDetection {
       isEditingHUD = true;
       introState = IntroState.finished;
       hudOpacity = 1.0;
-      _atualizarOpacidadeHUD();
+      atualizarOpacidadeHUD();
       overlays.add('RemapHUD');
     }
+
+    // ===============================================
+    // ESCUTANDO APENAS O GAMEPAD (SEM TECLADO NATIVO)
+    // ===============================================
+    try {
+      _gamepadSub = Gamepads.events.listen((GamepadEvent event) {
+        if (!isUsingController) {
+          isUsingController = true;
+          atualizarOpacidadeHUD();
+        }
+
+        if (event.type == KeyType.analog) {
+          if (event.key.toLowerCase().contains('left.x') ||
+              event.key.toLowerCase().contains('joystick.x')) {
+            if (event.value.abs() > 0.2)
+              gamepadAnalogX = event.value;
+            else
+              gamepadAnalogX = 0.0;
+          }
+        } else if (event.type == KeyType.button) {
+          if (event.key.toLowerCase().contains('dpad.left'))
+            gamepadAnalogX = event.value > 0 ? -1.0 : 0.0;
+          else if (event.key.toLowerCase().contains('dpad.right'))
+            gamepadAnalogX = event.value > 0 ? 1.0 : 0.0;
+
+          // SE O BOTÃO FOI PRESSIONADO PARA BAIXO
+          if (event.value > 0) {
+            if (event.key == ControllerConfig.attackKey)
+              player.basicAttack();
+            else if (event.key == ControllerConfig.jumpKey)
+              player.jump();
+            else if (event.key == ControllerConfig.dashKey)
+              player.dash();
+            else if (event.key == ControllerConfig.parryKey)
+              player.tentarParry();
+            else if (event.key == ControllerConfig.specialKey)
+              player.startSpecial();
+            // Pausa o jogo (Start ou Options do controle)
+            else if (event.key.toLowerCase().contains('start') ||
+                event.key.toLowerCase().contains('options') ||
+                event.key.toLowerCase().contains('menu')) {
+              if (!overlays.isActive('PauseMenu')) {
+                pauseEngine();
+                FlameAudio.bgm.pause();
+                overlays.add('PauseMenu');
+              }
+            }
+          }
+          // SE O BOTÃO FOI SOLTO
+          else {
+            if (event.key == ControllerConfig.specialKey)
+              player.releaseSpecial();
+          }
+        }
+      });
+    } catch (e) {
+      debugPrint('Gamepads erro: $e');
+    }
+  }
+
+  @override
+  void onRemove() {
+    _gamepadSub?.cancel();
+    super.onRemove();
   }
 
   @override
   void update(double dt) {
     super.update(dt);
 
+    // HUB DE MOVIMENTO (Sem Teclado)
+    inputX = 0.0;
+    if (!joystick.delta.isZero()) {
+      inputX = joystick.relativeDelta.x;
+      if (isUsingController) {
+        isUsingController = false;
+        atualizarOpacidadeHUD();
+      }
+    } else if (gamepadAnalogX != 0.0) {
+      inputX = gamepadAnalogX;
+    }
+
+    // CINEMÁTICA
     if (introState == IntroState.initialShake) {
       introTimer += dt;
-      // Tremor apenas horizontal, curto e bem rápido!
       double shakeX = (Random().nextDouble() - 0.5) * 8.0;
       camera.viewfinder.position = Vector2(shakeX, 0);
 
       if (introTimer >= 3.0) {
-        camera.viewfinder.position = Vector2.zero(); // Estabiliza a câmera
+        camera.viewfinder.position = Vector2.zero();
         introTimer = 0.0;
         introState = IntroState.playingGate;
         hasVibratedGate = false;
-
-        // CORREÇÃO: Usamos o atributo "playing" do componente para dar o play na animação
         gateComponent?.playing = true;
       }
     } else if (introState == IntroState.playingGate) {
       if (gateComponent != null) {
         if (gateComponent!.animationTicker?.currentIndex == 5 &&
             !hasVibratedGate) {
-          HapticFeedback.vibrate(); // Vibração mais forte no penúltimo frame
+          HapticFeedback.vibrate();
           hasVibratedGate = true;
         }
         if (gateComponent!.animationTicker?.done() == true) {
@@ -694,29 +768,31 @@ class MyPixelGame extends FlameGame with HasCollisionDetection {
         hudOpacity = 1.0;
         introState = IntroState.finished;
       }
-      _atualizarOpacidadeHUD();
+      atualizarOpacidadeHUD();
     }
   }
 
-  void _atualizarOpacidadeHUD() {
+  void atualizarOpacidadeHUD() {
+    double opacidadeReal = isUsingController ? 0.0 : hudOpacity;
+
     (joystick.knob as CircleComponent).paint.color = Colors.white.withOpacity(
-      0.5 * hudOpacity,
+      0.5 * opacidadeReal,
     );
     (joystick.background as CircleComponent).paint.color = Colors.white
-        .withOpacity(0.2 * hudOpacity);
+        .withOpacity(0.2 * opacidadeReal);
 
     if (pauseButton.button is CircleComponent) {
       (pauseButton.button as CircleComponent).paint.color = Colors.black
-          .withOpacity(0.7 * hudOpacity);
+          .withOpacity(0.7 * opacidadeReal);
       if (pauseButton.button!.children.isNotEmpty) {
         final child = pauseButton.button!.children.first;
         if (child is SpriteComponent)
-          child.paint.color = Colors.white.withOpacity(hudOpacity);
+          child.paint.color = Colors.white.withOpacity(opacidadeReal);
       }
     }
 
     for (var btn in hudButtons) {
-      btn.atualizarOpacidade(hudOpacity);
+      btn.atualizarOpacidade(opacidadeReal);
     }
   }
 
@@ -741,7 +817,7 @@ class MyPixelGame extends FlameGame with HasCollisionDetection {
 
     introState = IntroState.finished;
     hudOpacity = 1.0;
-    _atualizarOpacidadeHUD();
+    atualizarOpacidadeHUD();
     player.position = Vector2(108, player.groundLevelY);
     boss.resetBoss();
     boss.position = Vector2(592, 278);
